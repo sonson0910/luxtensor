@@ -88,19 +88,19 @@ cargo doc --open
 
 ```bash
 # Display version information
-./target/release/luxtensor-cli version
+./target/release/luxtensor version
 
 # Generate a new cryptographic keypair
-./target/release/luxtensor-cli generate-key
+./target/release/luxtensor generate-key
 
 # Query blockchain status
-./target/release/luxtensor-cli status --network testnet
+./target/release/luxtensor status --network testnet
 
 # Check account balance
-./target/release/luxtensor-cli balance <address> --network testnet
+./target/release/luxtensor balance <address> --network testnet
 
 # Send a transaction
-./target/release/luxtensor-cli send --to <address> --amount <amount> --network testnet
+./target/release/luxtensor send --to <address> --amount <amount> --network testnet
 ```
 
 ### Testnet Access
@@ -357,7 +357,7 @@ curl -X POST https://faucet.luxtensor.io/request \
   -d '{"address": "your_address_here"}'
 
 # Or use the CLI
-./target/release/luxtensor-cli faucet --address <your_address>
+./target/release/luxtensor faucet --address <your_address>
 ```
 
 ### Running a Validator
@@ -366,7 +366,7 @@ Join the testnet as a validator:
 
 1. **Generate validator keys**:
    ```bash
-   ./target/release/luxtensor-cli validator keygen --output validator.key
+   ./target/release/luxtensor validator keygen --output validator.key
    ```
 
 2. **Configure your node**:
@@ -379,7 +379,7 @@ Join the testnet as a validator:
 
 3. **Stake tokens** (minimum 10 LUX):
    ```bash
-   ./target/release/luxtensor-cli stake --amount 10000000000000000000
+   ./target/release/luxtensor stake --amount 10000000000000000000
    ```
 
 4. **Start your validator node**:
