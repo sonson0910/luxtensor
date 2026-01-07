@@ -139,7 +139,7 @@ The synchronization process follows a rigorous multi-step protocol:
 5. **Commitment**: Persist changes to permanent storage
 
 ```rust
-async fn sync_nodes(source: &TestNode, target: &TestNode) -> Result<()> {
+async fn sync_nodes(source: &TestNode, target: &TestNode) -> Result<(), Box<dyn std::error::Error>> {
     let source_height = source.storage.get_best_height().unwrap();
     let target_height = target.storage.get_best_height().unwrap();
     

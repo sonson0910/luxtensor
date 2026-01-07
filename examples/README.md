@@ -134,8 +134,8 @@ We recommend exploring examples in this order:
 
 3. **Implement your example** using LuxTensor crates:
    ```rust
-   use luxtensor_core::*;
-   use luxtensor_crypto::*;
+   use luxtensor_core::{Block, Transaction, State};
+   use luxtensor_crypto::{KeyPair, Hash};
    
    fn main() -> Result<(), Box<dyn std::error::Error>> {
        // Your example code here
