@@ -199,7 +199,7 @@ LuxTensor is being developed in phases with clear milestones:
   - Mainnet preparation
   - Production deployment
 
-**Estimated Timeline**: 38 weeks (~8.8 months) to production-ready mainnet
+**Estimated Timeline**: 38 weeks to production-ready mainnet
 
 ## Contributing
 
@@ -335,6 +335,6 @@ LuxTensor is built with ❤️ using Rust and draws inspiration from leading blo
 
 **Current Status**: Phase 1 Complete - Foundation Layer  
 **Next Milestone**: Phase 2 - Consensus Implementation  
-**Target**: Production-ready mainnet in ~8.8 months
+**Target**: Production-ready mainnet in 38 weeks
 
 For questions, suggestions, or discussions, please open an issue on GitHub or join our community.
