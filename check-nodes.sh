@@ -52,7 +52,9 @@ check_node_rpc() {
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' 2>/dev/null)
     
-    if [ $? -eq 0 ] && [ ! -z "$response" ]; then
+    curl_status=$?
+    
+    if [[ $curl_status -eq 0 && -n "$response" ]]; then
         # Extract block number (it's in hex format)
         block_hex=$(echo $response | grep -o '"result":"0x[0-9a-fA-F]*"' | cut -d'"' -f4)
         if [ ! -z "$block_hex" ]; then
@@ -72,7 +74,7 @@ check_node_rpc() {
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' 2>/dev/null)
     
-    if [ $? -eq 0 ] && [ ! -z "$peer_response" ]; then
+    if [[ -n "$peer_response" ]]; then
         peer_hex=$(echo $peer_response | grep -o '"result":"0x[0-9a-fA-F]*"' | cut -d'"' -f4)
         if [ ! -z "$peer_hex" ]; then
             peer_count=$((16#${peer_hex#0x}))
@@ -83,15 +85,25 @@ check_node_rpc() {
 }
 
 # Check if curl and nc are available
-if ! command -v curl &> /dev/null; then
-    echo -e "${RED}curl is not installed. Skipping RPC checks.${NC}"
-    exit 0
-fi
+check_dependencies() {
+    local missing_deps=()
+    
+    if ! command -v curl &> /dev/null; then
+        missing_deps+=("curl")
+    fi
+    
+    if ! command -v nc &> /dev/null; then
+        missing_deps+=("nc (netcat)")
+    fi
+    
+    if [ ${#missing_deps[@]} -ne 0 ]; then
+        echo -e "${RED}Missing required tools: ${missing_deps[*]}${NC}"
+        echo "Please install the missing tools and try again."
+        exit 1
+    fi
+}
 
-if ! command -v nc &> /dev/null; then
-    echo -e "${RED}nc (netcat) is not installed. Skipping port checks.${NC}"
-    exit 0
-fi
+check_dependencies
 
 # Check each node's RPC endpoint
 echo -e "${YELLOW}Checking node RPC endpoints...${NC}\n"

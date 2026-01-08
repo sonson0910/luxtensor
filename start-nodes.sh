@@ -84,7 +84,7 @@ echo "  - Node 3: RPC=http://localhost:8565"
 echo ""
 
 # Ask if user wants to attach
-read -p "Attach to tmux session now? [Y/n] " -n 1 -r
+read -t 10 -p "Attach to tmux session now? [Y/n] " -n 1 -r
 echo
 if [[ $REPLY =~ ^[Yy]$ ]] || [[ -z $REPLY ]]; then
     tmux attach -t luxtensor
