@@ -84,6 +84,26 @@ cargo doc --open
 ./target/release/luxtensor-node --config config.example.toml
 ```
 
+#### Run Multiple Local Nodes
+
+To run a local network with multiple nodes for development and testing:
+
+```bash
+# Quick start with helper scripts
+./start-nodes.sh  # Starts 3 nodes in tmux session
+./check-nodes.sh  # Check status of all nodes
+./stop-nodes.sh   # Stop all nodes
+
+# Or manually start each node in separate terminals
+cd node1 && ../target/release/luxtensor-node --config config.toml
+cd node2 && ../target/release/luxtensor-node --config config.toml
+cd node3 && ../target/release/luxtensor-node --config config.toml
+```
+
+**Comprehensive guides available:**
+- [Multi-Node Setup Guide (English)](MULTI_NODE_SETUP_GUIDE.md) - Complete guide for running multiple nodes
+- [Hướng Dẫn Chạy Nhiều Node (Tiếng Việt)](HUONG_DAN_CHAY_NHIEU_NODE.md) - Vietnamese language guide
+
 ### Command-Line Interface
 
 ```bash
