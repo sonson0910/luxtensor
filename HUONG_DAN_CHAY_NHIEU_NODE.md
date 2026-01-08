@@ -76,15 +76,14 @@ Mỗi node cần có riêng:
 1. **Thư mục data** - Nơi lưu trữ dữ liệu blockchain
 2. **Cổng network** - Cổng giao tiếp P2P (phải là duy nhất)
 3. **Cổng RPC** - Cổng JSON-RPC API (phải là duy nhất)
-4. **Cổng WebSocket** - Cổng WebSocket API (phải là duy nhất)
 
 ### File Cấu Hình
 
 Repository bao gồm các cấu hình mẫu để chạy 3 node:
 
-- `config.node1.toml` - Cấu hình Node 1 (Cổng: 30303, 8545, 8546)
-- `config.node2.toml` - Cấu hình Node 2 (Cổng: 30304, 8555, 8556)
-- `config.node3.toml` - Cấu hình Node 3 (Cổng: 30305, 8565, 8566)
+- `config.node1.toml` - Cấu hình Node 1 (Cổng: P2P=30303, RPC=8545)
+- `config.node2.toml` - Cấu hình Node 2 (Cổng: P2P=30304, RPC=8555)
+- `config.node3.toml` - Cấu hình Node 3 (Cổng: P2P=30305, RPC=8565)
 
 ### Các Điểm Khác Biệt Chính Trong Cấu Hình
 
@@ -101,9 +100,6 @@ enable_mdns = true   # Bật tính năng tự động tìm node trên mạng loc
 
 [rpc]
 listen_port = 8545   # Cổng RPC duy nhất (8545, 8555, 8565)
-
-[rpc.websocket]
-listen_port = 8546   # Cổng WebSocket duy nhất (8546, 8556, 8566)
 ```
 
 ### Khám Phá Node
@@ -142,10 +138,6 @@ enable_mdns = true
 - **listen_addr**: "127.0.0.1" chỉ cho local, "0.0.0.0" cho tất cả interface
 - **listen_port**: Cổng HTTP API (phải duy nhất cho mỗi node)
 - **cors_origins**: Chính sách CORS (["*"] cho development)
-
-### Phần WebSocket
-- **enabled**: Bật máy chủ WebSocket cho subscriptions
-- **listen_port**: Cổng WebSocket (phải duy nhất cho mỗi node)
 
 ## Quản Lý Mạng Local
 

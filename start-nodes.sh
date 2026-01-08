@@ -78,9 +78,9 @@ echo "  - Switch between panes: ${BLUE}Ctrl+B then arrow keys${NC}"
 echo "  - Stop all nodes: ${BLUE}./stop-nodes.sh${NC}"
 echo ""
 echo "Node endpoints:"
-echo "  - Node 1: RPC=http://localhost:8545 WS=ws://localhost:8546"
-echo "  - Node 2: RPC=http://localhost:8555 WS=ws://localhost:8556"
-echo "  - Node 3: RPC=http://localhost:8565 WS=ws://localhost:8566"
+echo "  - Node 1: RPC=http://localhost:8545"
+echo "  - Node 2: RPC=http://localhost:8555"
+echo "  - Node 3: RPC=http://localhost:8565"
 echo ""
 
 # Ask if user wants to attach

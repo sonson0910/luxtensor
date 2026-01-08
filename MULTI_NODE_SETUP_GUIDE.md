@@ -76,15 +76,14 @@ Each node needs its own:
 1. **Data directory** - Where blockchain data is stored
 2. **Network port** - P2P communication port (must be unique)
 3. **RPC port** - JSON-RPC API port (must be unique)
-4. **WebSocket port** - WebSocket API port (must be unique)
 
 ### Configuration Files
 
 The repository includes example configurations for running 3 nodes:
 
-- `config.node1.toml` - Node 1 configuration (Ports: 30303, 8545, 8546)
-- `config.node2.toml` - Node 2 configuration (Ports: 30304, 8555, 8556)
-- `config.node3.toml` - Node 3 configuration (Ports: 30305, 8565, 8566)
+- `config.node1.toml` - Node 1 configuration (Ports: P2P=30303, RPC=8545)
+- `config.node2.toml` - Node 2 configuration (Ports: P2P=30304, RPC=8555)
+- `config.node3.toml` - Node 3 configuration (Ports: P2P=30305, RPC=8565)
 
 ### Key Configuration Differences
 
@@ -101,9 +100,6 @@ enable_mdns = true   # Enable local network discovery
 
 [rpc]
 listen_port = 8545   # Unique RPC port (8545, 8555, 8565)
-
-[rpc.websocket]
-listen_port = 8546   # Unique WebSocket port (8546, 8556, 8566)
 ```
 
 ### Node Discovery
@@ -142,10 +138,6 @@ For manual peer connections, you can specify bootstrap nodes after getting the n
 - **listen_addr**: "127.0.0.1" for local only, "0.0.0.0" for all interfaces
 - **listen_port**: HTTP API port (must be unique per node)
 - **cors_origins**: CORS policy (["*"] for development)
-
-### WebSocket Section
-- **enabled**: Enable WebSocket server for subscriptions
-- **listen_port**: WebSocket port (must be unique per node)
 
 ## Managing Your Local Network
 

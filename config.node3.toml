@@ -76,13 +76,6 @@ threads = 4
 # CORS allowed origins (* for all, or list specific origins)
 cors_origins = ["*"]
 
-[rpc.websocket]
-# Enable WebSocket server
-enabled = true
-
-# WebSocket listening port (Node 3: 8566)
-listen_port = 8566
-
 [logging]
 # Log level: trace, debug, info, warn, error
 level = "info"
