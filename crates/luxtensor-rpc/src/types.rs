@@ -13,7 +13,7 @@ impl BlockNumber {
     pub fn latest() -> Self {
         BlockNumber::Tag("latest".to_string())
     }
-    
+
     pub fn earliest() -> Self {
         BlockNumber::Tag("earliest".to_string())
     }
@@ -104,4 +104,38 @@ pub struct ValidatorStatus {
     pub address: String,
     pub stake: String,
     pub active: bool,
+}
+
+/// Subnet information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubnetInfo {
+    pub id: u64,
+    pub name: String,
+    pub owner: String,
+    pub emission_rate: u128,
+    pub participant_count: usize,
+    pub total_stake: u128,
+    pub created_at: u64,
+}
+
+/// Neuron (miner/validator) information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NeuronInfo {
+    pub uid: u64,
+    pub address: String,
+    pub subnet_id: u64,
+    pub stake: u128,
+    pub trust: f64,
+    pub rank: u64,
+    pub incentive: f64,
+    pub dividends: f64,
+    pub active: bool,
+    pub endpoint: Option<String>,
+}
+
+/// Weight information
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WeightInfo {
+    pub neuron_uid: u64,
+    pub weight: u32,
 }
