@@ -188,8 +188,9 @@ mod tests {
         assert!(parse_mdt_to_lts("1.1.1").is_err());
         assert!(parse_mdt_to_lts("1.1234567890123456789").is_err()); // Too many decimals
         
-        // Test overflow protection
-        assert!(parse_mdt_to_lts("340282366920938463463374607431768211456").is_err()); // u128::MAX + 1
+        // Test overflow protection - value that would overflow when multiplied by 10^18
+        let large_value = "340282366920938463464"; // This would overflow when converted to LTS
+        assert!(parse_mdt_to_lts(large_value).is_err());
     }
 
     #[test]
