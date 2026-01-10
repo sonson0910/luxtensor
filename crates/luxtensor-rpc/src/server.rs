@@ -46,8 +46,8 @@ impl RpcServer {
     fn register_blockchain_methods(&self, io: &mut IoHandler) {
         let db = self.db.clone();
 
-        // eth_blockNumber - Get current block height
-        io.add_sync_method("eth_blockNumber", move |_params: Params| {
+        // lux_blockNumber - Get current block height
+        io.add_sync_method("lux_blockNumber", move |_params: Params| {
             let height = db
                 .get_best_height()
                 .map_err(|_| jsonrpc_core::Error::internal_error())?
@@ -57,8 +57,8 @@ impl RpcServer {
 
         let db = self.db.clone();
 
-        // eth_getBlockByNumber - Get block by number
-        io.add_sync_method("eth_getBlockByNumber", move |params: Params| {
+        // lux_getBlockByNumber - Get block by number
+        io.add_sync_method("lux_getBlockByNumber", move |params: Params| {
             let parsed: Vec<serde_json::Value> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params("Missing block number"));
@@ -83,8 +83,8 @@ impl RpcServer {
 
         let db = self.db.clone();
 
-        // eth_getBlockByHash - Get block by hash
-        io.add_sync_method("eth_getBlockByHash", move |params: Params| {
+        // lux_getBlockByHash - Get block by hash
+        io.add_sync_method("lux_getBlockByHash", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params("Missing block hash"));
@@ -116,8 +116,8 @@ impl RpcServer {
 
         let db = self.db.clone();
 
-        // eth_getTransactionByHash - Get transaction by hash
-        io.add_sync_method("eth_getTransactionByHash", move |params: Params| {
+        // lux_getTransactionByHash - Get transaction by hash
+        io.add_sync_method("lux_getTransactionByHash", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params(
@@ -154,8 +154,8 @@ impl RpcServer {
     fn register_account_methods(&self, io: &mut IoHandler) {
         let state = self.state.clone();
 
-        // eth_getBalance - Get account balance
-        io.add_sync_method("eth_getBalance", move |params: Params| {
+        // lux_getBalance - Get account balance
+        io.add_sync_method("lux_getBalance", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params("Missing address"));
@@ -169,8 +169,8 @@ impl RpcServer {
 
         let state = self.state.clone();
 
-        // eth_getTransactionCount - Get account nonce
-        io.add_sync_method("eth_getTransactionCount", move |params: Params| {
+        // lux_getTransactionCount - Get account nonce
+        io.add_sync_method("lux_getTransactionCount", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params("Missing address"));
@@ -182,8 +182,8 @@ impl RpcServer {
             Ok(Value::String(format!("0x{:x}", nonce)))
         });
 
-        // eth_sendRawTransaction - Submit raw signed transaction
-        io.add_sync_method("eth_sendRawTransaction", move |params: Params| {
+        // lux_sendRawTransaction - Submit raw signed transaction
+        io.add_sync_method("lux_sendRawTransaction", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params("Missing transaction data"));

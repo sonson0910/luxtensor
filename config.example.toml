@@ -30,6 +30,18 @@ min_stake = 1000000000000000000  # 1 token
 # Maximum number of validators
 max_validators = 100
 
+# Default gas price for transactions (in wei)
+default_gas_price = 1000000000  # 1 gwei
+
+# Minimum gas price accepted (in wei)
+min_gas_price = 1000000000  # 1 gwei
+
+# Default gas limit for standard transactions
+default_gas_limit = 21000
+
+# Maximum gas limit per block
+max_block_gas_limit = 10000000  # 10M gas per block
+
 [network]
 # P2P listening address
 listen_addr = "0.0.0.0"
