@@ -547,7 +547,14 @@ mod tests {
             )
             .unwrap();
         executor
-            .deploy_contract(code2, deployer, 0, TEST_GAS_LIMIT, TEST_GAS_PRICE, 2)
+            .deploy_contract(
+                code2,
+                deployer,
+                0,
+                TEST_GAS_LIMIT,
+                TEST_GAS_PRICE,
+                2,
+            )
             .unwrap();
 
         let stats = executor.get_stats();
