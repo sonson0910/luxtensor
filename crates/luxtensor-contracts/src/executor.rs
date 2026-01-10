@@ -27,7 +27,7 @@ pub struct ExecutionContext {
     pub value: u128,
     /// Gas limit
     pub gas_limit: u64,
-    /// Gas price (in wei)
+    /// Gas price (in wei, max ~18.4 ETH at 2^64-1)
     pub gas_price: u64,
     /// Block number
     pub block_number: u64,
@@ -154,7 +154,7 @@ impl ContractExecutor {
                 gas_limit,
                 gas_price,
                 block_number,
-                block_number, // Using block_number as timestamp placeholder
+                block_number, // TODO: Pass actual timestamp from block when available
             )
             .unwrap_or_else(|e| {
                 // Fall back to simulation on EVM error
