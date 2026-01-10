@@ -18,6 +18,22 @@ LuxTensor is a cutting-edge Layer 1 blockchain written in Rust, designed as the 
 - 🔐 **Secure by Design**: Type-safe implementation with compile-time guarantees and comprehensive validation
 - 📊 **Scalable**: Designed to handle high-throughput AI inference validation across distributed networks
 
+## Currency Units
+
+LuxTensor uses a precise denomination system for its native token:
+
+- **MDT (ModernTensor)**: The main unit of currency (1 MDT)
+- **LTS (LuxTensor Smallest)**: The smallest indivisible unit (base unit)
+- **Relationship**: 1 MDT = 10¹⁸ LTS (1,000,000,000,000,000,000 LTS)
+
+This 18-decimal system allows for precise fractional amounts while maintaining compatibility with existing blockchain standards. All balances are stored internally as LTS, and the system supports conversions between MDT and LTS for user-facing applications.
+
+**Examples:**
+- 1 MDT = 1,000,000,000,000,000,000 LTS
+- 0.5 MDT = 500,000,000,000,000,000 LTS  
+- Minimum stake: 10 MDT = 10,000,000,000,000,000,000 LTS
+- Block reward: 2 MDT = 2,000,000,000,000,000,000 LTS
+
 ## Architecture
 
 LuxTensor follows a modular architecture organized as a Cargo workspace with specialized crates:

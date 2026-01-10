@@ -345,7 +345,7 @@ impl RpcServer {
             // For now, we check if the account has sufficient balance to be a validator
             let balance = state.read().get_balance(&validator_address);
             
-            // Minimum stake requirement (32 tokens with 18 decimals)
+            // Minimum stake requirement (32 MDT with 18 decimals = 32 * 10^18 LTS)
             let min_stake: u128 = 32_000_000_000_000_000_000;
             let is_active = balance >= min_stake;
 

@@ -17,8 +17,8 @@ block_time = 3
 # Number of blocks per epoch (for validator rotation)
 epoch_length = 100
 
-# Minimum stake required to become a validator (in wei)
-# 10 LUX = 10_000_000_000_000_000_000 wei
+# Minimum stake required to become a validator (in LTS - LuxTensor Smallest unit)
+# 10 MDT = 10,000,000,000,000,000,000 LTS (1 MDT = 10^18 LTS)
 min_stake = 10000000000000000000
 
 # Maximum number of validators in the active set

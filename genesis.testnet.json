@@ -51,11 +51,14 @@
     }
   ],
   "token": {
-    "name": "LuxTensor",
-    "symbol": "LUX",
+    "name": "ModernTensor",
+    "symbol": "MDT",
     "decimals": 18,
+    "base_unit": "LTS",
+    "base_unit_name": "LuxTensor Smallest",
     "total_supply": "1000000000000000000000000000",
-    "initial_emission_rate": "100000000000000000000000"
+    "initial_emission_rate": "100000000000000000000000",
+    "note": "1 MDT = 10^18 LTS. All balances stored in LTS (base unit)."
   },
   "governance": {
     "voting_period": 86400,

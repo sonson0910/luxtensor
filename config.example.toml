@@ -24,17 +24,18 @@ block_time = 3
 # Number of blocks per epoch
 epoch_length = 100
 
-# Minimum stake required to become a validator (in wei)
-min_stake = 1000000000000000000  # 1 token
+# Minimum stake required to become a validator (in LTS - LuxTensor Smallest unit)
+# 1 MDT = 1,000,000,000,000,000,000 LTS (10^18)
+min_stake = 1000000000000000000  # 1 MDT
 
 # Maximum number of validators
 max_validators = 100
 
-# Default gas price for transactions (in wei)
-default_gas_price = 1000000000  # 1 gwei
+# Default gas price for transactions (in LTS - LuxTensor Smallest unit)
+default_gas_price = 1000000000  # 1 gwei = 10^9 LTS
 
-# Minimum gas price accepted (in wei)
-min_gas_price = 1000000000  # 1 gwei
+# Minimum gas price accepted (in LTS)
+min_gas_price = 1000000000  # 1 gwei = 10^9 LTS
 
 # Default gas limit for standard transactions
 default_gas_limit = 21000

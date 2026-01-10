@@ -7,13 +7,13 @@ use std::collections::HashMap;
 pub struct Validator {
     /// Validator address
     pub address: Address,
-    /// Amount of stake (in base units)
+    /// Amount of stake (in LTS - LuxTensor Smallest unit)
     pub stake: u128,
     /// Public key for signing (32 bytes)
     pub public_key: [u8; 32],
     /// Is the validator active?
     pub active: bool,
-    /// Accumulated rewards
+    /// Accumulated rewards (in LTS)
     pub rewards: u128,
 }
 
