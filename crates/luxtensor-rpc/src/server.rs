@@ -406,6 +406,7 @@ fn parse_address(s: &str) -> std::result::Result<Address, jsonrpc_core::Error> {
 mod tests {
     use super::*;
     use luxtensor_core::{Block, BlockHeader, Transaction};
+    use luxtensor_crypto::KeyPair;
     use luxtensor_storage::BlockchainDB;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -494,5 +495,113 @@ mod tests {
         let rpc_tx = RpcTransaction::from(tx);
         assert_eq!(rpc_tx.nonce, "0x1");
         assert_eq!(rpc_tx.value, "0x3e8");
+    }
+
+    #[test]
+    fn test_send_raw_transaction_encoding() {
+        // Test that we can encode and decode a transaction
+        let keypair = KeyPair::generate();
+        let from = Address::from_slice(&keypair.address());
+        
+        let mut tx = Transaction::new(
+            0,
+            from,
+            Some(Address::zero()),
+            1000,
+            1,
+            21000,
+            vec![],
+        );
+
+        // Sign the transaction
+        let message = tx.signing_message();
+        let message_hash = luxtensor_crypto::keccak256(&message);
+        let signature = keypair.sign(&message_hash);
+        
+        tx.r.copy_from_slice(&signature[..32]);
+        tx.s.copy_from_slice(&signature[32..]);
+        tx.v = 0;
+
+        // Encode transaction
+        let encoded = bincode::serialize(&tx).unwrap();
+        let hex_encoded = hex::encode(&encoded);
+
+        // Decode transaction
+        let decoded_bytes = hex::decode(&hex_encoded).unwrap();
+        let decoded_tx: Transaction = bincode::deserialize(&decoded_bytes).unwrap();
+
+        // Verify the decoded transaction matches
+        assert_eq!(decoded_tx.nonce, tx.nonce);
+        assert_eq!(decoded_tx.value, tx.value);
+        assert_eq!(decoded_tx.from.as_bytes(), tx.from.as_bytes());
+    }
+
+    #[test]
+    fn test_mempool_transaction_storage() {
+        let (_temp, db, state) = create_test_setup();
+        let server = RpcServer::new(db, state);
+
+        // Create a test transaction
+        let tx = Transaction::new(
+            0,
+            Address::zero(),
+            Some(Address::zero()),
+            1000,
+            1,
+            21000,
+            vec![],
+        );
+
+        let tx_hash = tx.hash();
+
+        // Add to mempool
+        server.mempool_txs.write().insert(tx_hash, tx.clone());
+
+        // Verify it's stored
+        let stored_tx = server.mempool_txs.read().get(&tx_hash).cloned();
+        assert!(stored_tx.is_some());
+        assert_eq!(stored_tx.unwrap().nonce, tx.nonce);
+    }
+
+    #[test]
+    fn test_ai_task_storage() {
+        let (_temp, db, state) = create_test_setup();
+        let server = RpcServer::new(db, state);
+
+        // Create a test task
+        let task_id = "0x1234567890abcdef";
+        let task_result = AITaskResult {
+            task_id: task_id.to_string(),
+            result_data: String::new(),
+            worker: String::new(),
+            status: "pending".to_string(),
+        };
+
+        // Store task
+        server.ai_tasks.write().insert(task_id.to_string(), task_result.clone());
+
+        // Verify it's stored
+        let stored_task = server.ai_tasks.read().get(task_id).cloned();
+        assert!(stored_task.is_some());
+        assert_eq!(stored_task.unwrap().status, "pending");
+    }
+
+    #[test]
+    fn test_validator_status_check() {
+        let (_temp, db, state) = create_test_setup();
+        let mut state_write = state.write();
+        
+        // Create an address with sufficient balance to be a validator
+        let addr = Address::from_slice(&[1u8; 20]);
+        let min_stake: u128 = 32_000_000_000_000_000_000;
+        
+        let account = luxtensor_core::Account::with_balance(min_stake);
+        state_write.set_account(addr, account);
+        drop(state_write);
+
+        // Check balance is set correctly
+        let balance = state.read().get_balance(&addr);
+        assert_eq!(balance, min_stake);
+        assert!(balance >= min_stake);
     }
 }
