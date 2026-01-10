@@ -149,17 +149,17 @@ Query each node's status using the RPC API:
 # Node 1 status
 curl -X POST http://localhost:8545 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"lux_blockNumber","params":[],"id":1}'
 
 # Node 2 status
 curl -X POST http://localhost:8555 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"lux_blockNumber","params":[],"id":1}'
 
 # Node 3 status
 curl -X POST http://localhost:8565 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"lux_blockNumber","params":[],"id":1}'
 ```
 
 ### Viewing Peer Connections

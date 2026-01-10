@@ -149,17 +149,17 @@ Truy vấn trạng thái của mỗi node sử dụng RPC API:
 # Trạng thái Node 1
 curl -X POST http://localhost:8545 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"lux_blockNumber","params":[],"id":1}'
 
 # Trạng thái Node 2
 curl -X POST http://localhost:8555 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"lux_blockNumber","params":[],"id":1}'
 
 # Trạng thái Node 3
 curl -X POST http://localhost:8565 \
   -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}'
+  -d '{"jsonrpc":"2.0","method":"lux_blockNumber","params":[],"id":1}'
 ```
 
 ### Xem Kết Nối Peer
