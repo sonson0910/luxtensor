@@ -1,21 +1,31 @@
 use crate::{types::*, RpcError, Result};
 use jsonrpc_core::{IoHandler, Params, Value};
 use jsonrpc_http_server::{Server, ServerBuilder};
-use luxtensor_core::{Address, StateDB};
+use luxtensor_core::{Address, StateDB, Transaction};
 use luxtensor_storage::BlockchainDB;
 use parking_lot::RwLock;
 use std::sync::Arc;
+use std::collections::HashMap;
 
 /// JSON-RPC server for LuxTensor blockchain
 pub struct RpcServer {
     db: Arc<BlockchainDB>,
     state: Arc<RwLock<StateDB>>,
+    // In-memory storage for AI tasks and validator info
+    // In a production system, these would be stored in a persistent database
+    ai_tasks: Arc<RwLock<HashMap<String, AITaskResult>>>,
+    mempool_txs: Arc<RwLock<HashMap<[u8; 32], Transaction>>>,
 }
 
 impl RpcServer {
     /// Create a new RPC server
     pub fn new(db: Arc<BlockchainDB>, state: Arc<RwLock<StateDB>>) -> Self {
-        Self { db, state }
+        Self { 
+            db, 
+            state,
+            ai_tasks: Arc::new(RwLock::new(HashMap::new())),
+            mempool_txs: Arc::new(RwLock::new(HashMap::new())),
+        }
     }
 
     /// Start the RPC server on the given address
@@ -182,6 +192,9 @@ impl RpcServer {
             Ok(Value::String(format!("0x{:x}", nonce)))
         });
 
+        let mempool_txs = self.mempool_txs.clone();
+        let state = self.state.clone();
+
         // lux_sendRawTransaction - Submit raw signed transaction
         io.add_sync_method("lux_sendRawTransaction", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
@@ -189,37 +202,111 @@ impl RpcServer {
                 return Err(jsonrpc_core::Error::invalid_params("Missing transaction data"));
             }
 
-            // In a real implementation, we would:
-            // 1. Decode the raw transaction
-            // 2. Verify the signature
-            // 3. Add to mempool
-            // 4. Return transaction hash
+            // Decode the raw transaction from hex
+            let raw_tx_hex = parsed[0].trim_start_matches("0x");
+            let raw_tx_bytes = hex::decode(raw_tx_hex)
+                .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid hex encoding"))?;
 
-            // For now, return a placeholder
-            Ok(Value::String(format!(
-                "0x{}",
-                hex::encode([0u8; 32])
-            )))
+            // Deserialize transaction using bincode
+            let tx: Transaction = bincode::deserialize(&raw_tx_bytes)
+                .map_err(|e| jsonrpc_core::Error::invalid_params(
+                    format!("Failed to decode transaction: {}", e)
+                ))?;
+
+            // Verify the signature
+            tx.verify_signature()
+                .map_err(|e| jsonrpc_core::Error::invalid_params(
+                    format!("Invalid signature: {}", e)
+                ))?;
+
+            // Verify nonce matches expected nonce
+            let expected_nonce = state.read().get_nonce(&tx.from);
+            if tx.nonce != expected_nonce {
+                return Err(jsonrpc_core::Error::invalid_params(
+                    format!("Invalid nonce: expected {}, got {}", expected_nonce, tx.nonce)
+                ));
+            }
+
+            // Verify sender has enough balance for value + gas
+            let balance = state.read().get_balance(&tx.from);
+            let total_cost = tx.value + (tx.gas_limit as u128 * tx.gas_price as u128);
+            if balance < total_cost {
+                return Err(jsonrpc_core::Error::invalid_params(
+                    format!("Insufficient balance: have {}, need {}", balance, total_cost)
+                ));
+            }
+
+            // Calculate transaction hash
+            let tx_hash = tx.hash();
+
+            // Add to mempool (in-memory for now)
+            let mut mempool = mempool_txs.write();
+            if mempool.contains_key(&tx_hash) {
+                return Err(jsonrpc_core::Error::invalid_params("Duplicate transaction"));
+            }
+            
+            mempool.insert(tx_hash, tx);
+
+            // Return transaction hash
+            Ok(Value::String(format!("0x{}", hex::encode(tx_hash))))
         });
     }
 
     /// Register AI-specific methods
     fn register_ai_methods(&self, io: &mut IoHandler) {
+        let ai_tasks = self.ai_tasks.clone();
+        let state = self.state.clone();
+
         // lux_submitAITask - Submit AI computation task
         io.add_sync_method("lux_submitAITask", move |params: Params| {
-            let _task: AITaskRequest = params.parse()?;
+            let task: AITaskRequest = params.parse()?;
 
-            // In a real implementation, we would:
-            // 1. Validate the task
-            // 2. Store in task queue
-            // 3. Return task ID
+            // Validate the requester address
+            let requester_address = parse_address(&task.requester)?;
+            
+            // Parse reward amount
+            let reward_str = task.reward.trim_start_matches("0x");
+            let reward = u128::from_str_radix(reward_str, 16)
+                .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid reward amount"))?;
 
-            // For now, return a placeholder task ID
-            Ok(Value::String(format!(
-                "0x{}",
-                hex::encode([1u8; 32])
-            )))
+            // Verify requester has sufficient balance
+            let balance = state.read().get_balance(&requester_address);
+            if balance < reward {
+                return Err(jsonrpc_core::Error::invalid_params(
+                    format!("Insufficient balance for reward: have {}, need {}", balance, reward)
+                ));
+            }
+
+            // Generate task ID from task data
+            let task_id = {
+                use luxtensor_crypto::keccak256;
+                let mut data = Vec::new();
+                data.extend_from_slice(task.model_hash.as_bytes());
+                data.extend_from_slice(task.input_data.as_bytes());
+                data.extend_from_slice(task.requester.as_bytes());
+                data.extend_from_slice(&reward.to_le_bytes());
+                // Use a counter or nonce from the requester's account to ensure uniqueness
+                // For now, we use the hash of all inputs which makes tasks with identical 
+                // parameters have the same ID (idempotent)
+                keccak256(&data)
+            };
+
+            // Store task with pending status
+            let task_result = AITaskResult {
+                task_id: format!("0x{}", hex::encode(task_id)),
+                result_data: String::new(), // Empty until completed
+                worker: String::new(), // No worker assigned yet
+                status: "pending".to_string(),
+            };
+
+            let mut tasks = ai_tasks.write();
+            tasks.insert(format!("0x{}", hex::encode(task_id)), task_result);
+
+            // Return task ID
+            Ok(Value::String(format!("0x{}", hex::encode(task_id))))
         });
+
+        let ai_tasks = self.ai_tasks.clone();
 
         // lux_getAIResult - Get AI task result
         io.add_sync_method("lux_getAIResult", move |params: Params| {
@@ -228,13 +315,20 @@ impl RpcServer {
                 return Err(jsonrpc_core::Error::invalid_params("Missing task ID"));
             }
 
-            // In a real implementation, we would:
-            // 1. Look up the task result
-            // 2. Return the result with status
-
-            // For now, return null (task not found)
-            Ok(Value::Null)
+            let task_id = &parsed[0];
+            
+            // Look up the task result
+            let tasks = ai_tasks.read();
+            match tasks.get(task_id) {
+                Some(result) => {
+                    serde_json::to_value(result)
+                        .map_err(|_| jsonrpc_core::Error::internal_error())
+                }
+                None => Ok(Value::Null),
+            }
         });
+
+        let state = self.state.clone();
 
         // lux_getValidatorStatus - Get validator information
         io.add_sync_method("lux_getValidatorStatus", move |params: Params| {
@@ -243,12 +337,26 @@ impl RpcServer {
                 return Err(jsonrpc_core::Error::invalid_params("Missing validator address"));
             }
 
-            // In a real implementation, we would:
-            // 1. Look up validator in consensus module
-            // 2. Return validator status and stake
+            // Validate address format
+            let validator_address = parse_address(&parsed[0])?;
 
-            // For now, return null
-            Ok(Value::Null)
+            // Get validator stake from state
+            // In a full implementation, this would query the consensus module
+            // For now, we check if the account has sufficient balance to be a validator
+            let balance = state.read().get_balance(&validator_address);
+            
+            // Minimum stake requirement (32 tokens with 18 decimals)
+            let min_stake: u128 = 32_000_000_000_000_000_000;
+            let is_active = balance >= min_stake;
+
+            let status = ValidatorStatus {
+                address: format!("0x{}", hex::encode(validator_address.as_bytes())),
+                stake: format!("0x{:x}", balance),
+                active: is_active,
+            };
+
+            serde_json::to_value(status)
+                .map_err(|_| jsonrpc_core::Error::internal_error())
         });
     }
 }
@@ -296,6 +404,7 @@ fn parse_address(s: &str) -> std::result::Result<Address, jsonrpc_core::Error> {
 mod tests {
     use super::*;
     use luxtensor_core::{Block, BlockHeader, Transaction};
+    use luxtensor_crypto::KeyPair;
     use luxtensor_storage::BlockchainDB;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -384,5 +493,115 @@ mod tests {
         let rpc_tx = RpcTransaction::from(tx);
         assert_eq!(rpc_tx.nonce, "0x1");
         assert_eq!(rpc_tx.value, "0x3e8");
+    }
+
+    #[test]
+    fn test_send_raw_transaction_encoding() {
+        // Test that we can encode and decode a transaction
+        let keypair = KeyPair::generate();
+        let from = Address::from_slice(&keypair.address());
+        
+        let mut tx = Transaction::new(
+            0,
+            from,
+            Some(Address::zero()),
+            1000,
+            1,
+            21000,
+            vec![],
+        );
+
+        // Sign the transaction
+        let message = tx.signing_message();
+        let message_hash = luxtensor_crypto::keccak256(&message);
+        let signature = keypair.sign(&message_hash);
+        
+        tx.r.copy_from_slice(&signature[..32]);
+        tx.s.copy_from_slice(&signature[32..]);
+        // Note: In production, recovery ID (v) should be properly determined during signing.
+        // For this encoding/decoding test, we use 0 as a placeholder.
+        tx.v = 0;
+
+        // Encode transaction
+        let encoded = bincode::serialize(&tx).unwrap();
+        let hex_encoded = hex::encode(&encoded);
+
+        // Decode transaction
+        let decoded_bytes = hex::decode(&hex_encoded).unwrap();
+        let decoded_tx: Transaction = bincode::deserialize(&decoded_bytes).unwrap();
+
+        // Verify the decoded transaction matches
+        assert_eq!(decoded_tx.nonce, tx.nonce);
+        assert_eq!(decoded_tx.value, tx.value);
+        assert_eq!(decoded_tx.from.as_bytes(), tx.from.as_bytes());
+    }
+
+    #[test]
+    fn test_mempool_transaction_storage() {
+        let (_temp, db, state) = create_test_setup();
+        let server = RpcServer::new(db, state);
+
+        // Create a test transaction
+        let tx = Transaction::new(
+            0,
+            Address::zero(),
+            Some(Address::zero()),
+            1000,
+            1,
+            21000,
+            vec![],
+        );
+
+        let tx_hash = tx.hash();
+
+        // Add to mempool
+        server.mempool_txs.write().insert(tx_hash, tx.clone());
+
+        // Verify it's stored
+        let stored_tx = server.mempool_txs.read().get(&tx_hash).cloned();
+        assert!(stored_tx.is_some());
+        assert_eq!(stored_tx.unwrap().nonce, tx.nonce);
+    }
+
+    #[test]
+    fn test_ai_task_storage() {
+        let (_temp, db, state) = create_test_setup();
+        let server = RpcServer::new(db, state);
+
+        // Create a test task
+        let task_id = "0x1234567890abcdef";
+        let task_result = AITaskResult {
+            task_id: task_id.to_string(),
+            result_data: String::new(),
+            worker: String::new(),
+            status: "pending".to_string(),
+        };
+
+        // Store task
+        server.ai_tasks.write().insert(task_id.to_string(), task_result.clone());
+
+        // Verify it's stored
+        let stored_task = server.ai_tasks.read().get(task_id).cloned();
+        assert!(stored_task.is_some());
+        assert_eq!(stored_task.unwrap().status, "pending");
+    }
+
+    #[test]
+    fn test_validator_status_check() {
+        let (_temp, db, state) = create_test_setup();
+        let mut state_write = state.write();
+        
+        // Create an address with sufficient balance to be a validator
+        let addr = Address::from_slice(&[1u8; 20]);
+        let min_stake: u128 = 32_000_000_000_000_000_000;
+        
+        let account = luxtensor_core::Account::with_balance(min_stake);
+        state_write.set_account(addr, account);
+        drop(state_write);
+
+        // Check balance is set correctly
+        let balance = state.read().get_balance(&addr);
+        assert_eq!(balance, min_stake);
+        assert!(balance >= min_stake);
     }
 }
