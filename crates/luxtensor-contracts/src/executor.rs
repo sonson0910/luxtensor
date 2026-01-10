@@ -147,7 +147,15 @@ impl ContractExecutor {
         // Execute deployment with EVM
         let evm = self.evm.read();
         let (_returned_address, gas_used, _logs_data) = evm
-            .deploy(deployer, code.0.clone(), value, gas_limit, gas_price, block_number, block_number)
+            .deploy(
+                deployer,
+                code.0.clone(),
+                value,
+                gas_limit,
+                gas_price,
+                block_number,
+                block_number, // Using block_number as timestamp placeholder
+            )
             .unwrap_or_else(|e| {
                 // Fall back to simulation on EVM error
                 debug!("EVM deployment failed, using simulation: {:?}", e);
@@ -327,6 +335,10 @@ pub struct ContractStats {
 mod tests {
     use super::*;
 
+    const TEST_GAS_LIMIT: u64 = 1_000_000;
+    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei
+    const TEST_BLOCK_NUMBER: u64 = 1;
+
     fn create_test_address(value: u8) -> Address {
         Address::from([value; 20])
     }
@@ -346,7 +358,14 @@ mod tests {
         let deployer = create_test_address(1);
         let code = ContractCode(vec![0x60, 0x60, 0x60, 0x40]); // Sample bytecode
 
-        let result = executor.deploy_contract(code, deployer, 0, 1_000_000, 1_000_000_000, 1);
+        let result = executor.deploy_contract(
+            code,
+            deployer,
+            0,
+            TEST_GAS_LIMIT,
+            TEST_GAS_PRICE,
+            TEST_BLOCK_NUMBER,
+        );
         assert!(result.is_ok());
 
         let (address, exec_result) = result.unwrap();
@@ -361,7 +380,14 @@ mod tests {
         let deployer = create_test_address(1);
         let code = ContractCode(vec![]); // Empty code
 
-        let result = executor.deploy_contract(code, deployer, 0, 1_000_000, 1_000_000_000, 1);
+        let result = executor.deploy_contract(
+            code,
+            deployer,
+            0,
+            TEST_GAS_LIMIT,
+            TEST_GAS_PRICE,
+            TEST_BLOCK_NUMBER,
+        );
         assert!(result.is_err());
     }
 
@@ -371,7 +397,14 @@ mod tests {
         let deployer = create_test_address(1);
         let code = ContractCode(vec![0xFF; 25_000]); // Over 24KB limit
 
-        let result = executor.deploy_contract(code, deployer, 0, 1_000_000, 1_000_000_000, 1);
+        let result = executor.deploy_contract(
+            code,
+            deployer,
+            0,
+            TEST_GAS_LIMIT,
+            TEST_GAS_PRICE,
+            TEST_BLOCK_NUMBER,
+        );
         assert!(result.is_err());
     }
 
@@ -383,8 +416,8 @@ mod tests {
             contract_address: ContractAddress([0u8; 20]),
             value: 0,
             gas_limit: 100_000,
-            gas_price: 1_000_000_000,
-            block_number: 1,
+            gas_price: TEST_GAS_PRICE,
+            block_number: TEST_BLOCK_NUMBER,
             timestamp: 1000,
         };
 
@@ -399,7 +432,14 @@ mod tests {
         let code = ContractCode(vec![0x60, 0x60, 0x60, 0x40]);
 
         let (address, _) = executor
-            .deploy_contract(code, deployer, 0, 1_000_000, 1_000_000_000, 1)
+            .deploy_contract(
+                code,
+                deployer,
+                0,
+                TEST_GAS_LIMIT,
+                TEST_GAS_PRICE,
+                TEST_BLOCK_NUMBER,
+            )
             .unwrap();
 
         let context = ExecutionContext {
@@ -407,7 +447,7 @@ mod tests {
             contract_address: address,
             value: 0,
             gas_limit: 100_000,
-            gas_price: 1_000_000_000,
+            gas_price: TEST_GAS_PRICE,
             block_number: 2,
             timestamp: 2000,
         };
@@ -427,7 +467,14 @@ mod tests {
         let code = ContractCode(vec![0x60, 0x60, 0x60, 0x40]);
 
         let (address, _) = executor
-            .deploy_contract(code, deployer, 0, 1_000_000, 1_000_000_000, 1)
+            .deploy_contract(
+                code,
+                deployer,
+                0,
+                TEST_GAS_LIMIT,
+                TEST_GAS_PRICE,
+                TEST_BLOCK_NUMBER,
+            )
             .unwrap();
 
         let key = [1u8; 32];
@@ -447,7 +494,14 @@ mod tests {
         let deployer = create_test_address(1);
         let code = ContractCode(vec![0x60; 100]);
 
-        let result = executor.deploy_contract(code, deployer, 0, MAX_GAS_LIMIT + 1, 1_000_000_000, 1);
+        let result = executor.deploy_contract(
+            code,
+            deployer,
+            0,
+            MAX_GAS_LIMIT + 1,
+            TEST_GAS_PRICE,
+            TEST_BLOCK_NUMBER,
+        );
         assert!(result.is_err());
     }
 
@@ -459,7 +513,14 @@ mod tests {
         let value = 1_000_000u128;
 
         let (address, _) = executor
-            .deploy_contract(code, deployer, value, 1_000_000, 1_000_000_000, 1)
+            .deploy_contract(
+                code,
+                deployer,
+                value,
+                TEST_GAS_LIMIT,
+                TEST_GAS_PRICE,
+                TEST_BLOCK_NUMBER,
+            )
             .unwrap();
 
         let balance = executor.get_contract_balance(&address).unwrap();
@@ -476,10 +537,17 @@ mod tests {
         let code2 = ContractCode(vec![0x60; 200]);
 
         executor
-            .deploy_contract(code1, deployer, 0, 1_000_000, 1_000_000_000, 1)
+            .deploy_contract(
+                code1,
+                deployer,
+                0,
+                TEST_GAS_LIMIT,
+                TEST_GAS_PRICE,
+                TEST_BLOCK_NUMBER,
+            )
             .unwrap();
         executor
-            .deploy_contract(code2, deployer, 0, 1_000_000, 1_000_000_000, 2)
+            .deploy_contract(code2, deployer, 0, TEST_GAS_LIMIT, TEST_GAS_PRICE, 2)
             .unwrap();
 
         let stats = executor.get_stats();

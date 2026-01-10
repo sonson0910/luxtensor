@@ -331,6 +331,11 @@ fn address_to_revm(address: &Address) -> RevmAddress {
 mod tests {
     use super::*;
 
+    const TEST_GAS_LIMIT: u64 = 1_000_000;
+    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei
+    const TEST_BLOCK_NUMBER: u64 = 1;
+    const TEST_TIMESTAMP: u64 = 1000;
+
     #[test]
     fn test_evm_executor_creation() {
         let executor = EvmExecutor::new();
@@ -345,7 +350,15 @@ mod tests {
         // Simple contract bytecode (just returns)
         let code = vec![0x60, 0x00, 0x60, 0x00, 0xf3]; // PUSH1 0, PUSH1 0, RETURN
 
-        let result = executor.deploy(deployer, code, 0, 1_000_000, 1_000_000_000, 1, 1000);
+        let result = executor.deploy(
+            deployer,
+            code,
+            0,
+            TEST_GAS_LIMIT,
+            TEST_GAS_PRICE,
+            TEST_BLOCK_NUMBER,
+            TEST_TIMESTAMP,
+        );
         // May fail without proper bytecode, but should not panic
         assert!(result.is_ok() || result.is_err());
     }
