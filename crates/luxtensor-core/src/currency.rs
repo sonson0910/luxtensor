@@ -20,17 +20,18 @@ pub const LTS_PER_MMDT: u128 = 1_000_000_000_000_000_000_000_000; // 10^24 (1M M
 pub const MDT_DECIMALS: u8 = 18;
 
 /// Convert MDT to LTS (smallest unit)
+/// Returns `None` if overflow would occur
 /// 
 /// # Example
 /// ```
 /// use luxtensor_core::currency::mdt_to_lts;
 /// 
 /// let amount_mdt = 1;
-/// let amount_lts = mdt_to_lts(amount_mdt);
+/// let amount_lts = mdt_to_lts(amount_mdt).unwrap();
 /// assert_eq!(amount_lts, 1_000_000_000_000_000_000);
 /// ```
-pub fn mdt_to_lts(mdt: u128) -> u128 {
-    mdt.saturating_mul(LTS_PER_MDT)
+pub fn mdt_to_lts(mdt: u128) -> Option<u128> {
+    mdt.checked_mul(LTS_PER_MDT)
 }
 
 /// Convert LTS to MDT (with precision loss for fractional amounts)
@@ -60,7 +61,7 @@ pub fn lts_to_mdt(lts: u128) -> u128 {
 pub fn format_lts_as_mdt(lts: u128) -> String {
     let mdt_whole = lts / LTS_PER_MDT;
     let lts_fractional = lts % LTS_PER_MDT;
-    format!("{}.{:018} MDT", mdt_whole, lts_fractional)
+    format!("{}.{:0width$} MDT", mdt_whole, lts_fractional, width = MDT_DECIMALS as usize)
 }
 
 /// Format LTS amount as raw LTS string
@@ -95,26 +96,30 @@ pub fn parse_mdt_to_lts(mdt_str: &str) -> Result<u128, String> {
             // Whole number only
             let whole = parts[0].parse::<u128>()
                 .map_err(|_| "Invalid MDT amount".to_string())?;
-            Ok(mdt_to_lts(whole))
+            mdt_to_lts(whole).ok_or_else(|| "Amount too large - would overflow".to_string())
         }
         2 => {
             // Whole and fractional parts
             let whole = parts[0].parse::<u128>()
                 .map_err(|_| "Invalid MDT amount".to_string())?;
             
-            // Pad fractional part to 18 digits
+            // Pad fractional part to MDT_DECIMALS digits
             let mut frac_str = parts[1].to_string();
-            if frac_str.len() > 18 {
-                return Err("Too many decimal places (max 18)".to_string());
+            if frac_str.len() > MDT_DECIMALS as usize {
+                return Err(format!("Too many decimal places (max {})", MDT_DECIMALS));
             }
-            while frac_str.len() < 18 {
+            while frac_str.len() < MDT_DECIMALS as usize {
                 frac_str.push('0');
             }
             
             let fractional = frac_str.parse::<u128>()
                 .map_err(|_| "Invalid fractional amount".to_string())?;
             
-            Ok(mdt_to_lts(whole).saturating_add(fractional))
+            let whole_lts = mdt_to_lts(whole)
+                .ok_or_else(|| "Amount too large - would overflow".to_string())?;
+            
+            whole_lts.checked_add(fractional)
+                .ok_or_else(|| "Amount too large - would overflow".to_string())
         }
         _ => Err("Invalid MDT format".to_string()),
     }
@@ -126,10 +131,13 @@ mod tests {
 
     #[test]
     fn test_mdt_to_lts() {
-        assert_eq!(mdt_to_lts(0), 0);
-        assert_eq!(mdt_to_lts(1), 1_000_000_000_000_000_000);
-        assert_eq!(mdt_to_lts(10), 10_000_000_000_000_000_000);
-        assert_eq!(mdt_to_lts(100), 100_000_000_000_000_000_000);
+        assert_eq!(mdt_to_lts(0), Some(0));
+        assert_eq!(mdt_to_lts(1), Some(1_000_000_000_000_000_000));
+        assert_eq!(mdt_to_lts(10), Some(10_000_000_000_000_000_000));
+        assert_eq!(mdt_to_lts(100), Some(100_000_000_000_000_000_000));
+        
+        // Test overflow protection
+        assert_eq!(mdt_to_lts(u128::MAX), None);
     }
 
     #[test]
@@ -179,6 +187,9 @@ mod tests {
         assert!(parse_mdt_to_lts("invalid").is_err());
         assert!(parse_mdt_to_lts("1.1.1").is_err());
         assert!(parse_mdt_to_lts("1.1234567890123456789").is_err()); // Too many decimals
+        
+        // Test overflow protection
+        assert!(parse_mdt_to_lts("340282366920938463463374607431768211456").is_err()); // u128::MAX + 1
     }
 
     #[test]
