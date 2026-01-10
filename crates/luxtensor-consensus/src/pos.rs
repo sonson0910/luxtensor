@@ -23,8 +23,8 @@ impl Default for ConsensusConfig {
     fn default() -> Self {
         Self {
             slot_duration: 12, // 12 seconds per block
-            min_stake: 32_000_000_000_000_000_000u128, // 32 tokens minimum
-            block_reward: 2_000_000_000_000_000_000u128, // 2 tokens per block
+            min_stake: 32_000_000_000_000_000_000u128, // 32 MDT minimum in LTS
+            block_reward: 2_000_000_000_000_000_000u128, // 2 MDT per block in LTS
             epoch_length: 32, // 32 slots per epoch
         }
     }

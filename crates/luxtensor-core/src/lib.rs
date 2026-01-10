@@ -5,6 +5,7 @@ pub mod account;
 pub mod types;
 pub mod error;
 pub mod performance;
+pub mod currency;
 
 pub use block::*;
 pub use transaction::*;
@@ -16,3 +17,4 @@ pub use performance::{
     LruCache, ConcurrentCache, CacheStats, BatchProcessor, PerformanceMetrics,
     MetricSummary, BloomFilter,
 };
+pub use currency::*;

@@ -27,7 +27,7 @@ pub struct ExecutionContext {
     pub value: u128,
     /// Gas limit
     pub gas_limit: u64,
-    /// Gas price (in wei, max ~18.4 ETH at 2^64-1)
+    /// Gas price (in LTS, max ~18.4 MDT at 2^64-1)
     pub gas_price: u64,
     /// Block number
     pub block_number: u64,
@@ -336,7 +336,7 @@ mod tests {
     use super::*;
 
     const TEST_GAS_LIMIT: u64 = 1_000_000;
-    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei
+    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei in LTS
     const TEST_BLOCK_NUMBER: u64 = 1;
 
     fn create_test_address(value: u8) -> Address {

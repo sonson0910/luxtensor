@@ -332,7 +332,7 @@ mod tests {
     use super::*;
 
     const TEST_GAS_LIMIT: u64 = 1_000_000;
-    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei
+    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei in LTS
     const TEST_BLOCK_NUMBER: u64 = 1;
     const TEST_TIMESTAMP: u64 = 1000;
 

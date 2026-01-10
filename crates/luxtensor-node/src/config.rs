@@ -55,10 +55,10 @@ pub struct ConsensusConfig {
     /// Maximum number of validators
     pub max_validators: usize,
     
-    /// Default gas price for transactions (in wei)
+    /// Default gas price for transactions (in LTS)
     pub default_gas_price: u64,
-    
-    /// Minimum gas price accepted (in wei)
+
+    /// Minimum gas price accepted (in LTS)
     pub min_gas_price: u64,
     
     /// Default gas limit for transactions

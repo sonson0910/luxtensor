@@ -44,7 +44,7 @@ impl Default for RotationConfig {
             activation_delay_epochs: 2,
             exit_delay_epochs: 2,
             max_validators: 100,
-            min_stake: 32_000_000_000_000_000_000u128, // 32 tokens
+            min_stake: 32_000_000_000_000_000_000u128, // 32 MDT in LTS
         }
     }
 }
