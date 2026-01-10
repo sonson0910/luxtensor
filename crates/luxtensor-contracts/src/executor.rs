@@ -27,8 +27,8 @@ pub struct ExecutionContext {
     pub value: u128,
     /// Gas limit
     pub gas_limit: u64,
-    /// Gas price
-    pub gas_price: u128,
+    /// Gas price (in wei)
+    pub gas_price: u64,
     /// Block number
     pub block_number: u64,
     /// Block timestamp
@@ -201,7 +201,7 @@ impl ContractExecutor {
                 input_data.clone(),
                 context.value,
                 context.gas_limit,
-                context.gas_price as u64,
+                context.gas_price,
                 context.block_number,
                 context.timestamp,
             )
