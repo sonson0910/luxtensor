@@ -285,11 +285,9 @@ impl RpcServer {
                 data.extend_from_slice(task.input_data.as_bytes());
                 data.extend_from_slice(task.requester.as_bytes());
                 data.extend_from_slice(&reward.to_le_bytes());
-                data.extend_from_slice(&std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs()
-                    .to_le_bytes());
+                // Use a counter or nonce from the requester's account to ensure uniqueness
+                // For now, we use the hash of all inputs which makes tasks with identical 
+                // parameters have the same ID (idempotent)
                 keccak256(&data)
             };
 
@@ -520,6 +518,8 @@ mod tests {
         
         tx.r.copy_from_slice(&signature[..32]);
         tx.s.copy_from_slice(&signature[32..]);
+        // Note: In production, recovery ID (v) should be properly determined during signing.
+        // For this encoding/decoding test, we use 0 as a placeholder.
         tx.v = 0;
 
         // Encode transaction
