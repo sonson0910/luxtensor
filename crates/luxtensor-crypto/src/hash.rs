@@ -2,7 +2,7 @@ use sha3::{Keccak256, Digest};
 
 pub type Hash = [u8; 32];
 
-/// Keccak256 hash function
+/// Keccak256 hash function (Ethereum-style)
 pub fn keccak256(data: &[u8]) -> Hash {
     let mut hasher = Keccak256::new();
     hasher.update(data);

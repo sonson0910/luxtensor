@@ -5,7 +5,7 @@ use crate::types::ContractAddress;
 use luxtensor_core::types::{Address, Hash};
 use revm::primitives::{
     AccountInfo, Address as RevmAddress, Bytecode, Bytes, ExecutionResult as RevmExecutionResult,
-    Output, ResultAndState, TransactTo, TxEnv, U256,
+    Output, TransactTo, U256,
 };
 use revm::{Database, DatabaseCommit, Evm};
 use std::collections::HashMap;
@@ -37,7 +37,6 @@ impl EvmExecutor {
         code: Vec<u8>,
         value: u128,
         gas_limit: u64,
-        gas_price: u64,
         block_number: u64,
         timestamp: u64,
     ) -> Result<(Vec<u8>, u64, Vec<u8>), ContractError> {
@@ -60,7 +59,7 @@ impl EvmExecutor {
                 tx.data = Bytes::from(code);
                 tx.value = U256::from(value);
                 tx.gas_limit = gas_limit;
-                tx.gas_price = U256::from(gas_price);
+                tx.gas_price = U256::from(1);
             })
             .build();
 
@@ -77,9 +76,9 @@ impl EvmExecutor {
                 logs,
                 ..
             } => {
-                let (contract_address, deployed_code) = match output {
+                let (contract_address, _deployed_code) = match output {
                     Output::Create(bytes, Some(addr)) => (addr.0 .0.to_vec(), bytes.to_vec()),
-                    Output::Create(bytes, None) => {
+                    Output::Create(_bytes, None) => {
                         return Err(ContractError::ExecutionFailed(
                             "Contract creation failed".to_string(),
                         ))
@@ -105,12 +104,12 @@ impl EvmExecutor {
 
                 Ok((contract_address, gas_used, logs_data))
             }
-            RevmExecutionResult::Revert { gas_used, output } => {
+            RevmExecutionResult::Revert { gas_used: _, output } => {
                 let reason = String::from_utf8_lossy(&output).to_string();
                 warn!("Contract deployment reverted: {}", reason);
                 Err(ContractError::ExecutionReverted(reason))
             }
-            RevmExecutionResult::Halt { reason, gas_used } => {
+            RevmExecutionResult::Halt { reason, gas_used: _ } => {
                 warn!("Contract deployment halted: {:?}", reason);
                 Err(ContractError::ExecutionFailed(format!(
                     "Halted: {:?}",
@@ -129,7 +128,6 @@ impl EvmExecutor {
         input_data: Vec<u8>,
         value: u128,
         gas_limit: u64,
-        gas_price: u64,
         block_number: u64,
         timestamp: u64,
     ) -> Result<(Vec<u8>, u64, Vec<u8>), ContractError> {
@@ -167,7 +165,7 @@ impl EvmExecutor {
                 tx.data = Bytes::from(input_data);
                 tx.value = U256::from(value);
                 tx.gas_limit = gas_limit;
-                tx.gas_price = U256::from(gas_price);
+                tx.gas_price = U256::from(1);
             })
             .build();
 
@@ -199,12 +197,12 @@ impl EvmExecutor {
 
                 Ok((return_data, gas_used, logs_data))
             }
-            RevmExecutionResult::Revert { gas_used, output } => {
+            RevmExecutionResult::Revert { gas_used: _, output } => {
                 let reason = String::from_utf8_lossy(&output).to_string();
                 warn!("Contract call reverted: {}", reason);
                 Err(ContractError::ExecutionReverted(reason))
             }
-            RevmExecutionResult::Halt { reason, gas_used } => {
+            RevmExecutionResult::Halt { reason, gas_used: _ } => {
                 warn!("Contract call halted: {:?}", reason);
                 Err(ContractError::ExecutionFailed(format!(
                     "Halted: {:?}",
@@ -214,15 +212,42 @@ impl EvmExecutor {
         }
     }
 
-    /// Ensure account exists in state
+    /// Ensure account exists in state with reasonable default balance for gas
     fn ensure_account(&self, address: &RevmAddress) {
         let mut accounts = self.accounts.write();
         accounts.entry(*address).or_insert(AccountInfo {
+            // Provide enough balance for gas payments (100 ETH equivalent)
+            balance: U256::from(100_000_000_000_000_000_000u128),
+            nonce: 0,
+            code_hash: revm::primitives::KECCAK_EMPTY,
+            code: None,
+        });
+    }
+
+    /// Fund an account with specific balance
+    pub fn fund_account(&self, address: &Address, amount: u128) {
+        let addr = address_to_revm(address);
+        let mut accounts = self.accounts.write();
+        let account = accounts.entry(addr).or_insert(AccountInfo {
             balance: U256::ZERO,
             nonce: 0,
             code_hash: revm::primitives::KECCAK_EMPTY,
             code: None,
         });
+        account.balance = account.balance.saturating_add(U256::from(amount));
+    }
+
+    /// Get account balance
+    pub fn get_account_balance(&self, address: &Address) -> u128 {
+        let addr = address_to_revm(address);
+        self.accounts
+            .read()
+            .get(&addr)
+            .map(|a| {
+                // Convert U256 to u128, clamping if too large
+                a.balance.try_into().unwrap_or(u128::MAX)
+            })
+            .unwrap_or(0)
     }
 
     /// Get storage value for a contract
@@ -331,11 +356,6 @@ fn address_to_revm(address: &Address) -> RevmAddress {
 mod tests {
     use super::*;
 
-    const TEST_GAS_LIMIT: u64 = 1_000_000;
-    const TEST_GAS_PRICE: u64 = 1_000_000_000; // 1 gwei
-    const TEST_BLOCK_NUMBER: u64 = 1;
-    const TEST_TIMESTAMP: u64 = 1000;
-
     #[test]
     fn test_evm_executor_creation() {
         let executor = EvmExecutor::new();
@@ -350,15 +370,7 @@ mod tests {
         // Simple contract bytecode (just returns)
         let code = vec![0x60, 0x00, 0x60, 0x00, 0xf3]; // PUSH1 0, PUSH1 0, RETURN
 
-        let result = executor.deploy(
-            deployer,
-            code,
-            0,
-            TEST_GAS_LIMIT,
-            TEST_GAS_PRICE,
-            TEST_BLOCK_NUMBER,
-            TEST_TIMESTAMP,
-        );
+        let result = executor.deploy(deployer, code, 0, 1_000_000, 1, 1000);
         // May fail without proper bytecode, but should not panic
         assert!(result.is_ok() || result.is_err());
     }

@@ -38,22 +38,22 @@ echo ""
 check_node_rpc() {
     local node_num=$1
     local port=$2
-    
+
     echo -e "${YELLOW}Node ${node_num} (http://localhost:${port}):${NC}"
-    
+
     # Check if port is open
     if ! nc -z localhost $port 2>/dev/null; then
         echo -e "  ${RED}✗ RPC port ${port} is not accessible${NC}"
         return
     fi
-    
+
     # Try to get block number
     response=$(curl -s -X POST http://localhost:${port} \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"eth_blockNumber","params":[],"id":1}' 2>/dev/null)
-    
+
     curl_status=$?
-    
+
     if [[ $curl_status -eq 0 && -n "$response" ]]; then
         # Extract block number (it's in hex format)
         block_hex=$(echo $response | grep -o '"result":"0x[0-9a-fA-F]*"' | cut -d'"' -f4)
@@ -68,12 +68,12 @@ check_node_rpc() {
     else
         echo -e "  ${RED}✗ RPC is not responding${NC}"
     fi
-    
+
     # Try to get peer count
     peer_response=$(curl -s -X POST http://localhost:${port} \
         -H "Content-Type: application/json" \
         -d '{"jsonrpc":"2.0","method":"net_peerCount","params":[],"id":1}' 2>/dev/null)
-    
+
     if [[ -n "$peer_response" ]]; then
         peer_hex=$(echo $peer_response | grep -o '"result":"0x[0-9a-fA-F]*"' | cut -d'"' -f4)
         if [ ! -z "$peer_hex" ]; then
@@ -87,15 +87,15 @@ check_node_rpc() {
 # Check if curl and nc are available
 check_dependencies() {
     local missing_deps=()
-    
+
     if ! command -v curl &> /dev/null; then
         missing_deps+=("curl")
     fi
-    
+
     if ! command -v nc &> /dev/null; then
         missing_deps+=("nc (netcat)")
     fi
-    
+
     if [ ${#missing_deps[@]} -ne 0 ]; then
         echo -e "${RED}Missing required tools: ${missing_deps[*]}${NC}"
         echo "Please install the missing tools and try again."
