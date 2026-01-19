@@ -1,13 +1,18 @@
-use crate::{types::*, RpcError, Result, TransactionBroadcaster, NoOpBroadcaster};
+use crate::{types::*, RpcError, Result, TransactionBroadcaster, NoOpBroadcaster, eth_rpc::{EvmState, register_eth_methods}};
 use jsonrpc_core::{IoHandler, Params, Value};
 use jsonrpc_http_server::{Server, ServerBuilder};
-use luxtensor_core::{Address, StateDB, Transaction, Hash};
+use luxtensor_core::{StateDB, Transaction, Hash};
 use luxtensor_storage::{BlockchainDB, MetagraphDB};
-use luxtensor_consensus::{ValidatorSet, Validator};
+use luxtensor_consensus::{ValidatorSet, CommitRevealManager, CommitRevealConfig};
 use parking_lot::RwLock;
 use std::sync::Arc;
 use std::collections::HashMap;
 use tracing::{debug, info, warn};
+use crate::handlers::{
+    register_subnet_handlers, register_neuron_handlers,
+    register_staking_handlers, register_weight_handlers
+};
+use crate::helpers::{parse_address, parse_block_number};
 
 /// JSON-RPC server for LuxTensor blockchain
 ///
@@ -44,6 +49,8 @@ pub struct RpcServer {
     pending_txs: Arc<RwLock<HashMap<Hash, Transaction>>>,
     ai_tasks: Arc<RwLock<HashMap<Hash, AITaskInfo>>>,
     broadcaster: Arc<dyn TransactionBroadcaster>,
+    evm_state: Arc<RwLock<EvmState>>,
+    commit_reveal: Arc<RwLock<CommitRevealManager>>,
 }
 
 impl RpcServer {
@@ -69,6 +76,8 @@ impl RpcServer {
             pending_txs: Arc::new(RwLock::new(HashMap::new())),
             ai_tasks: Arc::new(RwLock::new(HashMap::new())),
             broadcaster,
+            evm_state: Arc::new(RwLock::new(EvmState::new(1337))), // Chain ID 1337
+            commit_reveal: Arc::new(RwLock::new(CommitRevealManager::new(CommitRevealConfig::default()))),
         }
     }
 
@@ -79,6 +88,97 @@ impl RpcServer {
             MetagraphDB::open(&temp_dir).expect("Failed to create test MetagraphDB")
         );
         Self::new(db, state, metagraph, Arc::new(NoOpBroadcaster))
+    }
+
+    /// Get EVM state reference for block production polling
+    pub fn evm_state(&self) -> Arc<RwLock<EvmState>> {
+        self.evm_state.clone()
+    }
+
+    /// Create a new RPC server for testing with external EVM state
+    pub fn new_for_testing_with_evm(
+        db: Arc<BlockchainDB>,
+        state: Arc<RwLock<StateDB>>,
+        evm_state: Arc<RwLock<EvmState>>,
+    ) -> Self {
+        let temp_dir = std::env::temp_dir().join(format!("luxtensor_test_{}", std::process::id()));
+        let metagraph = Arc::new(
+            MetagraphDB::open(&temp_dir).expect("Failed to create test MetagraphDB")
+        );
+
+        Self {
+            db,
+            state,
+            validators: Arc::new(RwLock::new(ValidatorSet::new())),
+            metagraph,
+            subnets: Arc::new(RwLock::new(HashMap::new())),
+            neurons: Arc::new(RwLock::new(HashMap::new())),
+            weights: Arc::new(RwLock::new(HashMap::new())),
+            pending_txs: Arc::new(RwLock::new(HashMap::new())),
+            ai_tasks: Arc::new(RwLock::new(HashMap::new())),
+            broadcaster: Arc::new(NoOpBroadcaster),
+            evm_state,
+            commit_reveal: Arc::new(RwLock::new(CommitRevealManager::new(CommitRevealConfig::default()))),
+        }
+    }
+
+    /// Create a new RPC server with external EVM state and P2P broadcaster
+    /// Use this for production multi-node setup
+    pub fn new_with_evm_and_broadcaster(
+        db: Arc<BlockchainDB>,
+        state: Arc<RwLock<StateDB>>,
+        evm_state: Arc<RwLock<EvmState>>,
+        broadcaster: Arc<dyn TransactionBroadcaster>,
+    ) -> Self {
+        let temp_dir = std::env::temp_dir().join(format!("luxtensor_{}", std::process::id()));
+        let metagraph = Arc::new(
+            MetagraphDB::open(&temp_dir).expect("Failed to create MetagraphDB")
+        );
+
+        Self {
+            db,
+            state,
+            validators: Arc::new(RwLock::new(ValidatorSet::new())),
+            metagraph,
+            subnets: Arc::new(RwLock::new(HashMap::new())),
+            neurons: Arc::new(RwLock::new(HashMap::new())),
+            weights: Arc::new(RwLock::new(HashMap::new())),
+            pending_txs: Arc::new(RwLock::new(HashMap::new())),
+            ai_tasks: Arc::new(RwLock::new(HashMap::new())),
+            broadcaster,
+            evm_state,
+            commit_reveal: Arc::new(RwLock::new(CommitRevealManager::new(CommitRevealConfig::default()))),
+        }
+    }
+
+    /// Create a new RPC server with external shared pending_txs for unified storage
+    /// Use this when you need P2P handlers to share the same TX pool as RPC
+    pub fn new_with_shared_pending_txs(
+        db: Arc<BlockchainDB>,
+        state: Arc<RwLock<StateDB>>,
+        evm_state: Arc<RwLock<EvmState>>,
+        broadcaster: Arc<dyn TransactionBroadcaster>,
+        pending_txs: Arc<RwLock<HashMap<Hash, Transaction>>>,
+    ) -> Self {
+        let temp_dir = std::env::temp_dir().join(format!("luxtensor_{}", std::process::id()));
+        let metagraph = Arc::new(
+            MetagraphDB::open(&temp_dir).expect("Failed to create MetagraphDB")
+        );
+
+        Self {
+            db,
+            state,
+            validators: Arc::new(RwLock::new(ValidatorSet::new())),
+            metagraph,
+            subnets: Arc::new(RwLock::new(HashMap::new())),
+            neurons: Arc::new(RwLock::new(HashMap::new())),
+            weights: Arc::new(RwLock::new(HashMap::new())),
+            pending_txs,
+            ai_tasks: Arc::new(RwLock::new(HashMap::new())),
+            broadcaster,
+            evm_state,
+            commit_reveal: Arc::new(RwLock::new(CommitRevealManager::new(CommitRevealConfig::default()))),
+        }
     }
 
     /// Create a new RPC server with validator set
@@ -103,6 +203,8 @@ impl RpcServer {
             pending_txs: Arc::new(RwLock::new(HashMap::new())),
             ai_tasks: Arc::new(RwLock::new(HashMap::new())),
             broadcaster,
+            evm_state: Arc::new(RwLock::new(EvmState::new(1337))),
+            commit_reveal: Arc::new(RwLock::new(CommitRevealManager::new(CommitRevealConfig::default()))),
         }
     }
 
@@ -167,14 +269,110 @@ impl RpcServer {
         // Register account methods
         self.register_account_methods(&mut io);
 
-        // Register staking methods
-        self.register_staking_methods(&mut io);
+        // Register modular handlers
+        register_staking_handlers(&mut io, self.validators.clone());
+        register_subnet_handlers(&mut io, self.subnets.clone());
+        register_neuron_handlers(&mut io, self.neurons.clone(), self.subnets.clone());
+        register_weight_handlers(&mut io, self.weights.clone());
 
         // Register AI-specific methods
         self.register_ai_methods(&mut io);
 
         // Register SDK query methods (query_*)
         self.register_query_methods(&mut io);
+
+        // Register Ethereum-compatible methods (eth_*)
+        register_eth_methods(&mut io, self.evm_state.clone());
+
+        // 🔧 Override eth_sendTransaction with P2P broadcasting
+        // This ensures transactions are propagated to peers
+        let evm_state_for_tx = self.evm_state.clone();
+        let broadcaster_for_tx = self.broadcaster.clone();
+        let state_for_tx = self.state.clone();
+        let pending_txs_for_tx = self.pending_txs.clone();
+
+        io.add_sync_method("eth_sendTransaction", move |params: Params| {
+            use crate::eth_rpc::{hex_to_address, generate_tx_hash};
+
+            let p: Vec<serde_json::Value> = params.parse()?;
+            let tx_obj = p.get(0).ok_or_else(|| jsonrpc_core::Error::invalid_params("Missing transaction object"))?;
+
+            let from_str = tx_obj.get("from")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Missing 'from' field"))?;
+
+            let from = hex_to_address(from_str)
+                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid 'from' address"))?;
+
+            let to = tx_obj.get("to")
+                .and_then(|v| v.as_str())
+                .and_then(hex_to_address);
+
+            let value = tx_obj.get("value")
+                .and_then(|v| v.as_str())
+                .and_then(|s| {
+                    let s = s.strip_prefix("0x").unwrap_or(s);
+                    u128::from_str_radix(s, 16).ok()
+                })
+                .unwrap_or(0);
+
+            let data = tx_obj.get("data")
+                .and_then(|v| v.as_str())
+                .map(|s| {
+                    let s = s.strip_prefix("0x").unwrap_or(s);
+                    hex::decode(s).unwrap_or_default()
+                })
+                .unwrap_or_default();
+
+            let gas = tx_obj.get("gas")
+                .and_then(|v| v.as_str())
+                .and_then(|s| {
+                    let s = s.strip_prefix("0x").unwrap_or(s);
+                    u64::from_str_radix(s, 16).ok()
+                })
+                .unwrap_or(10_000_000);
+
+            // Get nonce from state
+            let nonce = state_for_tx.read().get_nonce(&luxtensor_core::Address::from(from));
+
+            // Create luxtensor_core::Transaction for broadcasting
+            let to_addr = to.map(luxtensor_core::Address::from);
+            let core_tx = luxtensor_core::Transaction::new(
+                nonce,
+                luxtensor_core::Address::from(from),
+                to_addr,
+                value,
+                1, // gas_price
+                gas,
+                data.clone(),
+            );
+
+            // 🔧 FIX: Use deterministic hash from Transaction::hash() for consistency
+            // This ensures the same hash is used across all nodes
+            let tx_hash = core_tx.hash();
+
+            // Add to pending transactions
+            {
+                let mut pending = pending_txs_for_tx.write();
+                pending.insert(tx_hash, core_tx.clone());
+                info!("📤 Transaction added to mempool: 0x{}", hex::encode(&tx_hash));
+            }
+
+            // 🚀 BROADCAST TO P2P NETWORK
+            if let Err(e) = broadcaster_for_tx.broadcast(&core_tx) {
+                warn!("Failed to broadcast transaction to P2P: {}", e);
+            } else {
+                info!("📡 Transaction broadcasted to P2P network: 0x{}", hex::encode(&tx_hash));
+            }
+
+            // Also update EVM state for compatibility
+            {
+                let mut state_guard = evm_state_for_tx.write();
+                state_guard.increment_nonce(&from);
+            }
+
+            Ok(serde_json::json!(format!("0x{}", hex::encode(tx_hash))))
+        });
 
         // Start HTTP server
         let server = ServerBuilder::new(io)
@@ -189,20 +387,46 @@ impl RpcServer {
 
     /// Register blockchain query methods
     fn register_blockchain_methods(&self, io: &mut IoHandler) {
-        let db = self.db.clone();
-
         // eth_blockNumber - Get current block height
+        let db_for_block_num = self.db.clone();
         io.add_sync_method("eth_blockNumber", move |_params: Params| {
-            let height = db
-                .get_best_height()
-                .map_err(|_| jsonrpc_core::Error::internal_error())?
-                .unwrap_or(0);
-            Ok(Value::String(format!("0x{:x}", height)))
+            // Check genesis first
+            match db_for_block_num.get_block_by_height(0) {
+                Ok(None) => return Ok(Value::String("0x0".to_string())),
+                Err(_) => return Err(jsonrpc_core::Error::internal_error()),
+                Ok(Some(_)) => {}
+            }
+
+            // Jump search to find ceiling
+            let mut ceiling: u64 = 1;
+            loop {
+                match db_for_block_num.get_block_by_height(ceiling) {
+                    Ok(Some(_)) => {
+                        ceiling *= 2;
+                        if ceiling > 1_000_000 { break; }
+                    }
+                    Ok(None) => break,
+                    Err(_) => return Err(jsonrpc_core::Error::internal_error()),
+                }
+            }
+
+            // Binary search for exact height
+            let mut low = ceiling / 2;
+            let mut high = ceiling;
+            while low < high {
+                let mid = (low + high + 1) / 2;
+                match db_for_block_num.get_block_by_height(mid) {
+                    Ok(Some(_)) => low = mid,
+                    Ok(None) => high = mid - 1,
+                    Err(_) => return Err(jsonrpc_core::Error::internal_error()),
+                }
+            }
+
+            Ok(Value::String(format!("0x{:x}", low)))
         });
 
-        let db = self.db.clone();
-
         // eth_getBlockByNumber - Get block by number
+        let db_for_get_block = self.db.clone();
         io.add_sync_method("eth_getBlockByNumber", move |params: Params| {
             let parsed: Vec<serde_json::Value> = params.parse()?;
             if parsed.is_empty() {
@@ -215,7 +439,7 @@ impl RpcServer {
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
 
-            match db.get_block_by_height(height) {
+            match db_for_get_block.get_block_by_height(height) {
                 Ok(Some(block)) => {
                     let rpc_block = RpcBlock::from(block);
                     serde_json::to_value(rpc_block)
@@ -260,8 +484,10 @@ impl RpcServer {
         });
 
         let db = self.db.clone();
+        let pending_txs_query = self.pending_txs.clone();
 
         // eth_getTransactionByHash - Get transaction by hash
+        // Checks pending transactions first, then confirmed transactions in DB
         io.add_sync_method("eth_getTransactionByHash", move |params: Params| {
             let parsed: Vec<String> = params.parse()?;
             if parsed.is_empty() {
@@ -283,6 +509,17 @@ impl RpcServer {
             let mut hash = [0u8; 32];
             hash.copy_from_slice(&hash_bytes);
 
+            // 1. Check pending transactions first (in-memory mempool)
+            {
+                let pending = pending_txs_query.read();
+                if let Some(tx) = pending.get(&hash) {
+                    let rpc_tx = RpcTransaction::from(tx.clone());
+                    return serde_json::to_value(rpc_tx)
+                        .map_err(|_| jsonrpc_core::Error::internal_error());
+                }
+            }
+
+            // 2. Fallback to confirmed transactions in database
             match db.get_transaction(&hash) {
                 Ok(Some(tx)) => {
                     let rpc_tx = RpcTransaction::from(tx);
@@ -588,565 +825,10 @@ impl RpcServer {
         });
     }
 
-    /// Register staking-related methods
-    fn register_staking_methods(&self, io: &mut IoHandler) {
-        let _state = self.state.clone();
-        let validators = self.validators.clone();
-
-        // staking_getTotalStake - Get total stake in network
-        io.add_sync_method("staking_getTotalStake", move |_params: Params| {
-            let validator_set = validators.read();
-            let total_stake = validator_set.total_stake();
-            Ok(Value::String(format!("0x{:x}", total_stake)))
-        });
-
-        let _state = self.state.clone();
-        let validators = self.validators.clone();
-
-        // staking_getStake - Get stake for specific address
-        io.add_sync_method("staking_getStake", move |params: Params| {
-            let parsed: Vec<String> = params.parse()?;
-            if parsed.is_empty() {
-                return Err(jsonrpc_core::Error::invalid_params("Missing address"));
-            }
-
-            let address = parse_address(&parsed[0])?;
-
-            // Query stake from validator set
-            let validator_set = validators.read();
-            let stake = validator_set
-                .get_validator(&address)
-                .map(|v| v.stake)
-                .unwrap_or(0);
-
-            Ok(Value::String(format!("0x{:x}", stake)))
-        });
-
-        let validators = self.validators.clone();
-
-        // staking_getValidators - Get list of validators
-        io.add_sync_method("staking_getValidators", move |_params: Params| {
-            let validator_set = validators.read();
-            let validators_list: Vec<Value> = validator_set
-                .validators()
-                .iter()
-                .map(|v| {
-                    serde_json::json!({
-                        "address": format!("0x{}", hex::encode(v.address.as_bytes())),
-                        "stake": format!("0x{:x}", v.stake),
-                        "active": v.active,
-                        "rewards": format!("0x{:x}", v.rewards),
-                        "publicKey": format!("0x{}", hex::encode(v.public_key)),
-                    })
-                })
-                .collect();
-
-            Ok(Value::Array(validators_list))
-        });
-
-        let validators = self.validators.clone();
-
-        // staking_addStake - Add stake to validator
-        io.add_sync_method("staking_addStake", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 2 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing address or amount",
-                ));
-            }
-
-            let addr_str = parsed[0]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid address"))?;
-            let address = parse_address(addr_str)?;
-
-            let amount_str = parsed[1]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid amount"))?;
-            let amount = u128::from_str_radix(amount_str.trim_start_matches("0x"), 16)
-                .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid amount format"))?;
-
-            // Update stake in validator set
-            let mut validator_set = validators.write();
-
-            if let Some(validator) = validator_set.get_validator(&address) {
-                let new_stake = validator.stake + amount;
-                validator_set
-                    .update_stake(&address, new_stake)
-                    .map_err(|e| jsonrpc_core::Error::invalid_params(e))?;
-            } else {
-                // Create new validator with default public key
-                let validator = Validator::new(address, amount, [0u8; 32]);
-                validator_set
-                    .add_validator(validator)
-                    .map_err(|e| jsonrpc_core::Error::invalid_params(e))?;
-            }
-
-            Ok(Value::Bool(true))
-        });
-
-        let validators = self.validators.clone();
-
-        // staking_removeStake - Remove stake from validator
-        io.add_sync_method("staking_removeStake", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 2 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing address or amount",
-                ));
-            }
-
-            let addr_str = parsed[0]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid address"))?;
-            let address = parse_address(addr_str)?;
-
-            let amount_str = parsed[1]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid amount"))?;
-            let amount = u128::from_str_radix(amount_str.trim_start_matches("0x"), 16)
-                .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid amount format"))?;
-
-            // Update stake in validator set
-            let mut validator_set = validators.write();
-
-            if let Some(validator) = validator_set.get_validator(&address) {
-                if validator.stake < amount {
-                    return Err(jsonrpc_core::Error::invalid_params("Insufficient stake"));
-                }
-
-                let new_stake = validator.stake - amount;
-                if new_stake == 0 {
-                    // Remove validator if stake becomes 0
-                    validator_set
-                        .remove_validator(&address)
-                        .map_err(|e| jsonrpc_core::Error::invalid_params(e))?;
-                } else {
-                    validator_set
-                        .update_stake(&address, new_stake)
-                        .map_err(|e| jsonrpc_core::Error::invalid_params(e))?;
-                }
-            } else {
-                return Err(jsonrpc_core::Error::invalid_params("Validator not found"));
-            }
-
-            Ok(Value::Bool(true))
-        });
-
-        let validators = self.validators.clone();
-
-        // staking_claimRewards - Claim staking rewards
-        io.add_sync_method("staking_claimRewards", move |params: Params| {
-            let parsed: Vec<String> = params.parse()?;
-            if parsed.is_empty() {
-                return Err(jsonrpc_core::Error::invalid_params("Missing address"));
-            }
-
-            let address = parse_address(&parsed[0])?;
-
-            // Get rewards from validator
-            let mut validator_set = validators.write();
-
-            if let Some(validator) = validator_set.get_validator(&address) {
-                let rewards = validator.rewards;
-
-                // Reset rewards to 0 after claiming
-                validator_set.add_reward(&address, 0u128.wrapping_sub(rewards))
-                    .map_err(|e| jsonrpc_core::Error::invalid_params(e))?;
-
-                Ok(serde_json::json!({
-                    "success": true,
-                    "rewards": format!("0x{:x}", rewards)
-                }))
-            } else {
-                Err(jsonrpc_core::Error::invalid_params("Validator not found"))
-            }
-        });
-
-        let validators = self.validators.clone();
-
-        // staking_getTotalStake - Get total stake in network
-        io.add_sync_method("staking_getTotalStake", move |_params: Params| {
-            let validator_set = validators.read();
-            let total: u128 = validator_set
-                .validators()
-                .iter()
-                .map(|v| v.stake)
-                .sum();
-            Ok(Value::String(format!("0x{:x}", total)))
-        });
-
-        let db = self.db.clone();
-
-        // system_health - Get node health status
-        io.add_sync_method("system_health", move |_params: Params| {
-            let height = db.get_best_height().ok().flatten().unwrap_or(0);
-            Ok(serde_json::json!({
-                "peers": 0,
-                "isSyncing": false,
-                "shouldHavePeers": true,
-                "blockHeight": height
-            }))
-        });
-
-        let subnets = self.subnets.clone();
-
-        // subnet_getInfo - Get subnet information
-        io.add_sync_method("subnet_getInfo", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.is_empty() {
-                return Err(jsonrpc_core::Error::invalid_params("Missing subnet ID"));
-            }
-
-            let subnet_id = parsed[0]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid subnet ID"))?;
-
-            // Query subnet from storage
-            let subnets_map = subnets.read();
-
-            if let Some(subnet) = subnets_map.get(&subnet_id) {
-                let subnet_json = serde_json::json!({
-                    "id": subnet.id,
-                    "name": subnet.name,
-                    "owner": subnet.owner,
-                    "emission_rate": format!("0x{:x}", subnet.emission_rate),
-                    "participant_count": subnet.participant_count,
-                    "total_stake": format!("0x{:x}", subnet.total_stake),
-                    "created_at": format!("0x{:x}", subnet.created_at),
-                });
-                Ok(subnet_json)
-            } else {
-                Ok(Value::Null)
-            }
-        });
-
-        let subnets = self.subnets.clone();
-
-        // subnet_listAll - List all subnets
-        io.add_sync_method("subnet_listAll", move |_params: Params| {
-            let subnets_map = subnets.read();
-
-            let subnets_list: Vec<Value> = subnets_map
-                .values()
-                .map(|subnet| {
-                    serde_json::json!({
-                        "id": subnet.id,
-                        "name": subnet.name,
-                        "owner": subnet.owner,
-                        "emission_rate": format!("0x{:x}", subnet.emission_rate),
-                        "participant_count": subnet.participant_count,
-                        "total_stake": format!("0x{:x}", subnet.total_stake),
-                    })
-                })
-                .collect();
-
-            Ok(Value::Array(subnets_list))
-        });
-
-        let subnets = self.subnets.clone();
-
-        // subnet_create - Create a new subnet
-        io.add_sync_method("subnet_create", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 3 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing subnet name, owner, or emission rate",
-                ));
-            }
-
-            let name = parsed[0]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid name"))?
-                .to_string();
-
-            let owner = parsed[1]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid owner"))?
-                .to_string();
-
-            let emission_rate_str = parsed[2]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid emission rate"))?;
-            let emission_rate = u128::from_str_radix(emission_rate_str.trim_start_matches("0x"), 16)
-                .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid emission rate format"))?;
-
-            // Create new subnet
-            let mut subnets_map = subnets.write();
-            let subnet_id = subnets_map.len() as u64;
-
-            let subnet = SubnetInfo {
-                id: subnet_id,
-                name,
-                owner,
-                emission_rate,
-                participant_count: 0,
-                total_stake: 0,
-                created_at: std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .unwrap()
-                    .as_secs(),
-            };
-
-            subnets_map.insert(subnet_id, subnet);
-
-            Ok(serde_json::json!({
-                "success": true,
-                "subnet_id": subnet_id
-            }))
-        });
-
-        let neurons = self.neurons.clone();
-        let _subnets = self.subnets.clone();
-
-        // neuron_getInfo - Get neuron information
-        io.add_sync_method("neuron_getInfo", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 2 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing subnet ID or neuron UID",
-                ));
-            }
-
-            let subnet_id = parsed[0]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid subnet ID"))?;
-
-            let neuron_uid = parsed[1]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid neuron UID"))?;
-
-            // Query neuron from storage
-            let neurons_map = neurons.read();
-
-            if let Some(neuron) = neurons_map.get(&(subnet_id, neuron_uid)) {
-                let neuron_json = serde_json::json!({
-                    "uid": neuron.uid,
-                    "address": neuron.address,
-                    "subnet_id": neuron.subnet_id,
-                    "stake": format!("0x{:x}", neuron.stake),
-                    "trust": neuron.trust,
-                    "rank": neuron.rank,
-                    "incentive": neuron.incentive,
-                    "dividends": neuron.dividends,
-                    "active": neuron.active,
-                    "endpoint": neuron.endpoint,
-                });
-                Ok(neuron_json)
-            } else {
-                Ok(Value::Null)
-            }
-        });
-
-        let neurons = self.neurons.clone();
-
-        // neuron_listBySubnet - List neurons in subnet
-        io.add_sync_method("neuron_listBySubnet", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.is_empty() {
-                return Err(jsonrpc_core::Error::invalid_params("Missing subnet ID"));
-            }
-
-            let subnet_id = parsed[0]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid subnet ID"))?;
-
-            // Query all neurons in subnet
-            let neurons_map = neurons.read();
-
-            let neurons_list: Vec<Value> = neurons_map
-                .iter()
-                .filter(|((sid, _), _)| *sid == subnet_id)
-                .map(|(_, neuron)| {
-                    serde_json::json!({
-                        "uid": neuron.uid,
-                        "address": neuron.address,
-                        "stake": format!("0x{:x}", neuron.stake),
-                        "active": neuron.active,
-                        "rank": neuron.rank,
-                    })
-                })
-                .collect();
-
-            Ok(Value::Array(neurons_list))
-        });
-
-        let neurons = self.neurons.clone();
-        let subnets = self.subnets.clone();
-
-        // neuron_register - Register neuron on subnet
-        io.add_sync_method("neuron_register", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 3 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing subnet ID, address, or stake",
-                ));
-            }
-
-            let subnet_id = parsed[0]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid subnet ID"))?;
-
-            let address = parsed[1]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid address"))?
-                .to_string();
-
-            let stake_str = parsed[2]
-                .as_str()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid stake"))?;
-            let stake = u128::from_str_radix(stake_str.trim_start_matches("0x"), 16)
-                .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid stake format"))?;
-
-            let endpoint = parsed.get(3).and_then(|v| v.as_str()).map(|s| s.to_string());
-
-            // Register neuron
-            let mut neurons_map = neurons.write();
-            let mut subnets_map = subnets.write();
-
-            // Check subnet exists
-            if !subnets_map.contains_key(&subnet_id) {
-                return Err(jsonrpc_core::Error::invalid_params("Subnet not found"));
-            }
-
-            // Find next UID for this subnet
-            let neuron_uid = neurons_map
-                .keys()
-                .filter(|(sid, _)| *sid == subnet_id)
-                .map(|(_, uid)| uid)
-                .max()
-                .map(|max_uid| max_uid + 1)
-                .unwrap_or(0);
-
-            let neuron = NeuronInfo {
-                uid: neuron_uid,
-                address,
-                subnet_id,
-                stake,
-                trust: 0.0,
-                rank: 0,
-                incentive: 0.0,
-                dividends: 0.0,
-                active: true,
-                endpoint,
-            };
-
-            neurons_map.insert((subnet_id, neuron_uid), neuron);
-
-            // Update subnet participant count
-            if let Some(subnet) = subnets_map.get_mut(&subnet_id) {
-                subnet.participant_count += 1;
-                subnet.total_stake += stake;
-            }
-
-            Ok(serde_json::json!({
-                "success": true,
-                "neuron_uid": neuron_uid
-            }))
-        });
-
-        let weights = self.weights.clone();
-
-        // weight_getWeights - Get weights for neuron
-        io.add_sync_method("weight_getWeights", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 2 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing subnet ID or neuron UID",
-                ));
-            }
-
-            let subnet_id = parsed[0]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid subnet ID"))?;
-
-            let neuron_uid = parsed[1]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid neuron UID"))?;
-
-            // Query weights from storage
-            let weights_map = weights.read();
-
-            if let Some(weight_list) = weights_map.get(&(subnet_id, neuron_uid)) {
-                let weights_json: Vec<Value> = weight_list
-                    .iter()
-                    .map(|w| {
-                        serde_json::json!({
-                            "neuron_uid": w.neuron_uid,
-                            "weight": w.weight
-                        })
-                    })
-                    .collect();
-                Ok(Value::Array(weights_json))
-            } else {
-                Ok(Value::Array(vec![]))
-            }
-        });
-
-        let weights = self.weights.clone();
-
-        // weight_setWeights - Set weights for neuron
-        io.add_sync_method("weight_setWeights", move |params: Params| {
-            let parsed: Vec<serde_json::Value> = params.parse()?;
-            if parsed.len() < 4 {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Missing subnet ID, neuron UID, target UIDs, or weights",
-                ));
-            }
-
-            let subnet_id = parsed[0]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid subnet ID"))?;
-
-            let neuron_uid = parsed[1]
-                .as_u64()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid neuron UID"))?;
-
-            let target_uids: Vec<u64> = parsed[2]
-                .as_array()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid target UIDs array"))?
-                .iter()
-                .map(|v| v.as_u64().ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid UID")))
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-
-            let weight_values: Vec<u32> = parsed[3]
-                .as_array()
-                .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid weights array"))?
-                .iter()
-                .map(|v| v.as_u64().and_then(|n| n.try_into().ok())
-                    .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid weight value")))
-                .collect::<std::result::Result<Vec<_>, _>>()?;
-
-            if target_uids.len() != weight_values.len() {
-                return Err(jsonrpc_core::Error::invalid_params(
-                    "Mismatched UIDs and weights arrays",
-                ));
-            }
-
-            // Set weights
-            let mut weights_map = weights.write();
-
-            let weight_info: Vec<WeightInfo> = target_uids
-                .into_iter()
-                .zip(weight_values.into_iter())
-                .map(|(uid, weight)| WeightInfo {
-                    neuron_uid: uid,
-                    weight,
-                })
-                .collect();
-
-            weights_map.insert((subnet_id, neuron_uid), weight_info);
-
-            Ok(serde_json::json!({
-                "success": true
-            }))
-        });
-    }
-
     /// Register SDK-compatible query methods (query_*)
     fn register_query_methods(&self, io: &mut IoHandler) {
         let neurons = self.neurons.clone();
-        let subnets = self.subnets.clone();
+        let _subnets = self.subnets.clone();
 
         // query_neuron - Get specific neuron info
         io.add_sync_method("query_neuron", move |params: Params| {
@@ -1533,14 +1215,44 @@ impl RpcServer {
             Ok(Value::Object(stakes))
         });
 
-        // query_weightCommits - Get weight commits
+        // query_weightCommits - Get weight commits for a subnet
+        let commit_reveal = self.commit_reveal.clone();
         io.add_sync_method("query_weightCommits", move |params: Params| {
             let parsed: Vec<u64> = params.parse()?;
             if parsed.is_empty() {
                 return Err(jsonrpc_core::Error::invalid_params("Missing subnet_id"));
             }
-            // Return empty for now - weight commits not implemented
-            Ok(Value::Object(serde_json::Map::new()))
+            let subnet_id = parsed[0];
+
+            // Get commits from CommitRevealManager
+            let commits = commit_reveal.read().get_pending_commits(subnet_id);
+            let epoch_state = commit_reveal.read().get_epoch_state(subnet_id);
+
+            let mut result = serde_json::Map::new();
+
+            // Add epoch info
+            if let Some(state) = epoch_state {
+                result.insert("epochNumber".into(), serde_json::json!(state.epoch_number));
+                result.insert("phase".into(), serde_json::json!(format!("{:?}", state.phase)));
+                result.insert("commitStartBlock".into(), serde_json::json!(state.commit_start_block));
+                result.insert("revealStartBlock".into(), serde_json::json!(state.reveal_start_block));
+                result.insert("finalizeBlock".into(), serde_json::json!(state.finalize_block));
+            }
+
+            // Add commits
+            let commit_list: Vec<serde_json::Value> = commits.iter().map(|c| {
+                serde_json::json!({
+                    "validator": format!("0x{}", hex::encode(c.validator.as_bytes())),
+                    "commitHash": format!("0x{}", hex::encode(&c.commit_hash)),
+                    "committedAt": c.committed_at,
+                    "revealed": c.revealed
+                })
+            }).collect();
+
+            result.insert("commits".into(), serde_json::json!(commit_list));
+            result.insert("commitCount".into(), serde_json::json!(commits.len()));
+
+            Ok(Value::Object(result))
         });
 
         // query_weightsVersion - Get weights version
@@ -1736,49 +1448,11 @@ impl RpcServer {
     }
 }
 
-/// Parse block number from JSON value
-fn parse_block_number(value: &serde_json::Value) -> std::result::Result<u64, jsonrpc_core::Error> {
-    match value {
-        serde_json::Value::String(s) => {
-            if s == "latest" || s == "pending" {
-                // In real implementation, get latest block
-                Ok(0)
-            } else if s == "earliest" {
-                Ok(0)
-            } else {
-                let s = s.trim_start_matches("0x");
-                u64::from_str_radix(s, 16)
-                    .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid block number"))
-            }
-        }
-        serde_json::Value::Number(n) => n
-            .as_u64()
-            .ok_or_else(|| jsonrpc_core::Error::invalid_params("Invalid block number")),
-        _ => Err(jsonrpc_core::Error::invalid_params(
-            "Block number must be string or number",
-        )),
-    }
-}
-
-/// Parse address from hex string
-fn parse_address(s: &str) -> std::result::Result<Address, jsonrpc_core::Error> {
-    let s = s.trim_start_matches("0x");
-    let bytes = hex::decode(s)
-        .map_err(|_| jsonrpc_core::Error::invalid_params("Invalid address format"))?;
-
-    if bytes.len() != 20 {
-        return Err(jsonrpc_core::Error::invalid_params(
-            "Address must be 20 bytes",
-        ));
-    }
-
-    Ok(Address::from_slice(&bytes))
-}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use luxtensor_core::{Block, BlockHeader, Transaction};
+    use luxtensor_core::{Block, BlockHeader, Transaction, Address};
     use luxtensor_storage::BlockchainDB;
     use std::sync::Arc;
     use tempfile::TempDir;
