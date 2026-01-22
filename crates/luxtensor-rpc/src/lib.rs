@@ -11,7 +11,23 @@ pub mod rewards_rpc;
 pub mod allocation_rpc;
 pub mod node_rpc;
 pub mod eth_rpc;
+pub mod logs;
+pub mod subnet_rpc;
+pub mod helpers;
+pub mod handlers;
+pub mod staking_rpc;
+pub mod peer_count;
+pub mod contract_registry;
+pub mod rate_limiter;
+pub mod admin_auth;
+pub mod load_balancer;
 
+pub use rate_limiter::{RateLimiter, RateLimiterConfig};
+pub use admin_auth::{AdminAuth, AdminAuthConfig, requires_admin_auth};
+pub use load_balancer::{
+    RpcLoadBalancer, LoadBalancerConfig, LoadBalancerStats,
+    NodeEndpoint, NodeHealth, SmartRpcClient,
+};
 pub use broadcaster::{
     TransactionBroadcaster, BroadcastError,
     NoOpBroadcaster, ChannelBroadcaster, CompositeBroadcaster,
@@ -25,5 +41,6 @@ pub use validation::{RpcLimits, ValidationError, validate_address, validate_hash
 pub use rewards_rpc::register_reward_methods;
 pub use allocation_rpc::register_allocation_methods;
 pub use node_rpc::register_node_methods;
-pub use eth_rpc::{register_eth_methods, EvmState};
-
+pub use eth_rpc::{register_eth_methods, register_log_methods, register_aa_methods, EvmState, ReadyTransaction};
+pub use logs::{LogStore, LogEntry, LogFilter, LogStoreStats};
+pub use subnet_rpc::{register_subnet_methods, RootSubnet, new_root_subnet, RootSubnetState};

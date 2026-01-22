@@ -39,6 +39,31 @@ pub struct NodeConfig {
 
     /// Validator private key path (if validator)
     pub validator_key_path: Option<PathBuf>,
+
+    /// Unique validator ID for leader election (e.g., "validator-1")
+    #[serde(default)]
+    pub validator_id: Option<String>,
+
+    /// DAO treasury address for rewards distribution (hex with 0x prefix)
+    #[serde(default = "default_dao_address")]
+    pub dao_address: String,
+}
+
+/// Default DAO treasury address (ModernTensor Foundation)
+///
+/// IMPORTANT: For production deployments, configure this in your config.toml:
+/// ```toml
+/// [node]
+/// dao_address = "0xYOUR_ACTUAL_DAO_ADDRESS_HERE"
+/// ```
+///
+/// Official addresses:
+/// - Mainnet: Will be announced before mainnet launch
+/// - Testnet: 0xDAO0000000000000000000000000000000000002
+fn default_dao_address() -> String {
+    // PLACEHOLDER - Must be configured in production config.toml
+    // This default is for development/testing only
+    "0xDAO0000000000000000000000000000000000001".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +79,19 @@ pub struct ConsensusConfig {
 
     /// Maximum number of validators
     pub max_validators: usize,
+
+    /// Block gas limit (default: 30_000_000)
+    #[serde(default = "default_gas_limit")]
+    pub gas_limit: u64,
+
+    /// List of known validators for leader election (in order)
+    #[serde(default)]
+    pub validators: Vec<String>,
+}
+
+/// Default block gas limit: 30 million
+fn default_gas_limit() -> u64 {
+    30_000_000
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,14 +102,19 @@ pub struct NetworkConfig {
     /// P2P listening port
     pub listen_port: u16,
 
-    /// Bootstrap nodes
+    /// Bootstrap nodes (multiaddr format, e.g., "/ip4/1.2.3.4/tcp/30303/p2p/12D3KooW...")
     pub bootstrap_nodes: Vec<String>,
 
     /// Maximum number of peers
     pub max_peers: usize,
 
-    /// Enable mDNS discovery
+    /// Enable mDNS discovery (local network only)
     pub enable_mdns: bool,
+
+    /// Path to node identity key file (for persistent Peer ID)
+    /// If not set, uses "./node.key" in data_dir
+    #[serde(default)]
+    pub node_key_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -131,12 +174,16 @@ impl Default for Config {
                 data_dir: PathBuf::from("./data"),
                 is_validator: false,
                 validator_key_path: None,
+                validator_id: None,
+                dao_address: default_dao_address(),
             },
             consensus: ConsensusConfig {
                 block_time: 3,
                 epoch_length: 100,
                 min_stake: "1000000000000000000".to_string(), // 1 token (10^18)
                 max_validators: 100,
+                gas_limit: default_gas_limit(),
+                validators: vec!["validator-1".to_string(), "validator-2".to_string(), "validator-3".to_string()],
             },
             network: NetworkConfig {
                 listen_addr: "0.0.0.0".to_string(),
@@ -144,6 +191,7 @@ impl Default for Config {
                 bootstrap_nodes: vec![],
                 max_peers: 50,
                 enable_mdns: true,
+                node_key_path: None,  // Will use ./node.key in data_dir
             },
             storage: StorageConfig {
                 db_path: PathBuf::from("./data/db"),

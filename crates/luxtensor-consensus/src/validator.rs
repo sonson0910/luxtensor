@@ -17,6 +17,8 @@ pub struct Validator {
     pub rewards: u128,
     /// Last slot this validator was active
     pub last_active_slot: u64,
+    /// Epoch when validator becomes eligible (for epoch delay)
+    pub activation_epoch: u64,
 }
 
 impl Validator {
@@ -28,7 +30,26 @@ impl Validator {
             active: true,
             rewards: 0,
             last_active_slot: 0,
+            activation_epoch: 0, // Immediately active by default
         }
+    }
+
+    /// Create a new validator with delayed activation
+    pub fn new_with_delay(address: Address, stake: u128, public_key: [u8; 32], current_epoch: u64) -> Self {
+        Self {
+            address,
+            stake,
+            public_key,
+            active: true,
+            rewards: 0,
+            last_active_slot: 0,
+            activation_epoch: current_epoch + 1, // Active next epoch
+        }
+    }
+
+    /// Check if validator is eligible for current epoch
+    pub fn is_eligible(&self, current_epoch: u64) -> bool {
+        self.active && current_epoch >= self.activation_epoch
     }
 }
 
@@ -65,7 +86,7 @@ impl ValidatorSet {
     /// Remove a validator from the set
     pub fn remove_validator(&mut self, address: &Address) -> Result<(), &'static str> {
         if let Some(validator) = self.validators.remove(address) {
-            self.total_stake -= validator.stake;
+            self.total_stake = self.total_stake.saturating_sub(validator.stake);
             Ok(())
         } else {
             Err("Validator not found")
@@ -75,7 +96,7 @@ impl ValidatorSet {
     /// Update validator stake
     pub fn update_stake(&mut self, address: &Address, new_stake: u128) -> Result<(), &'static str> {
         if let Some(validator) = self.validators.get_mut(address) {
-            self.total_stake = self.total_stake - validator.stake + new_stake;
+            self.total_stake = self.total_stake.saturating_sub(validator.stake).saturating_add(new_stake);
             validator.stake = new_stake;
             Ok(())
         } else {
@@ -87,8 +108,8 @@ impl ValidatorSet {
     pub fn slash_stake(&mut self, address: &Address, amount: u128) -> Result<u128, &'static str> {
         if let Some(validator) = self.validators.get_mut(address) {
             let slash_amount = amount.min(validator.stake);
-            validator.stake -= slash_amount;
-            self.total_stake -= slash_amount;
+            validator.stake = validator.stake.saturating_sub(slash_amount);
+            self.total_stake = self.total_stake.saturating_sub(slash_amount);
             Ok(slash_amount)
         } else {
             Err("Validator not found")

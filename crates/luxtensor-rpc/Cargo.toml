@@ -15,6 +15,8 @@ thiserror = { workspace = true }
 parking_lot = { workspace = true }
 hex = { workspace = true }
 bincode = { workspace = true }
+sha3 = "0.10"
+lazy_static = "1.4"
 
 # WebSocket support
 tokio-tungstenite = "0.21"
@@ -25,6 +27,7 @@ luxtensor-core = { path = "../luxtensor-core" }
 luxtensor-storage = { path = "../luxtensor-storage" }
 luxtensor-consensus = { path = "../luxtensor-consensus" }
 luxtensor-crypto = { path = "../luxtensor-crypto" }
+luxtensor-contracts = { path = "../luxtensor-contracts" }
 
 [dev-dependencies]
 tokio = { workspace = true }

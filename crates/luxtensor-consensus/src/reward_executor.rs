@@ -4,7 +4,7 @@
 use std::collections::HashMap;
 use parking_lot::RwLock;
 use crate::reward_distribution::{
-    RewardDistributor, DistributionConfig, LockBonusConfig, DistributionResult,
+    RewardDistributor, DistributionResult,
     MinerInfo, ValidatorInfo, DelegatorInfo, SubnetInfo
 };
 use crate::emission::{EmissionController, EmissionConfig, UtilityMetrics};
@@ -150,7 +150,7 @@ impl RewardExecutor {
                 last_epoch: 0,
                 accumulated_from_epoch: epoch,
             });
-            entry.amount += amount;
+            entry.amount = entry.amount.saturating_add(amount);
             entry.last_epoch = epoch;
 
             // Record history
@@ -183,8 +183,9 @@ impl RewardExecutor {
             credit(*addr, *amount, RewardType::SubnetOwner);
         }
 
-        // Credit DAO treasury
-        *self.dao_balance.write() += distribution.dao_allocation;
+        // Credit DAO treasury (with overflow protection)
+        let mut dao_bal = self.dao_balance.write();
+        *dao_bal = dao_bal.saturating_add(distribution.dao_allocation);
     }
 
     /// Claim pending rewards - moves from pending to available balance
@@ -208,7 +209,7 @@ impl RewardExecutor {
         pending.remove(&address);
 
         let balance = balances.entry(address).or_insert(AccountBalance::default());
-        balance.available += pending_amount;
+        balance.available = balance.available.saturating_add(pending_amount);
         balance.pending_rewards = 0;
 
         // Mark history entries as claimed
@@ -333,9 +334,11 @@ mod tests {
 
     fn test_utility() -> UtilityMetrics {
         UtilityMetrics {
-            transaction_count: 100,
-            ai_tasks_completed: 50,
-            network_utilization: 0.5,
+            active_validators: 10,
+            active_subnets: 5,
+            epoch_transactions: 100,
+            epoch_ai_tasks: 50,
+            block_utilization: 50,
         }
     }
 

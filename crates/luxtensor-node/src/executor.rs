@@ -1,6 +1,8 @@
 use luxtensor_core::{Transaction, Address, Account, StateDB, CoreError, Result};
 use luxtensor_crypto::keccak256;
 use serde::{Deserialize, Serialize};
+use sha3::{Keccak256, Digest};
+use tracing::info;
 
 /// Transaction receipt
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -14,6 +16,8 @@ pub struct Receipt {
     pub gas_used: u64,
     pub status: ExecutionStatus,
     pub logs: Vec<Log>,
+    /// Contract address if this was a contract deployment
+    pub contract_address: Option<Address>,
 }
 
 /// Execution status
@@ -35,14 +39,27 @@ pub struct Log {
 pub struct TransactionExecutor {
     base_gas_cost: u64,
     gas_per_byte: u64,
+    /// Skip signature verification (for development only!)
+    skip_signature_verification: bool,
 }
 
 impl TransactionExecutor {
-    /// Create a new transaction executor
+    /// Create a new transaction executor with signature verification enabled (production mode)
     pub fn new() -> Self {
         Self {
             base_gas_cost: 21000,  // Base transaction cost
             gas_per_byte: 68,      // Cost per byte of data
+            skip_signature_verification: false,  // PRODUCTION: always verify
+        }
+    }
+
+    /// Create executor for development mode (signature verification disabled)
+    /// WARNING: Only use for local development/testing!
+    pub fn new_dev_mode() -> Self {
+        Self {
+            base_gas_cost: 21000,
+            gas_per_byte: 68,
+            skip_signature_verification: true,
         }
     }
 
@@ -55,8 +72,10 @@ impl TransactionExecutor {
         block_hash: [u8; 32],
         tx_index: usize,
     ) -> Result<Receipt> {
-        // Verify signature
-        tx.verify_signature()?;
+        // Signature verification - CRITICAL for production!
+        if !self.skip_signature_verification {
+            tx.verify_signature()?;
+        }
 
         // Get sender account
         let mut sender = state.get_account(&tx.from)
@@ -83,13 +102,13 @@ impl TransactionExecutor {
             .ok_or_else(|| CoreError::InvalidTransaction(
                 "Gas fee calculation overflow".to_string()
             ))?;
-        
+
         let total_cost = gas_fee
             .checked_add(tx.value)
             .ok_or_else(|| CoreError::InvalidTransaction(
                 "Total cost calculation overflow".to_string()
             ))?;
-        
+
         // Check balance
         if sender.balance < total_cost {
             return Err(CoreError::InvalidTransaction(
@@ -97,21 +116,81 @@ impl TransactionExecutor {
             ));
         }
 
-        // Deduct cost from sender
-        sender.balance -= total_cost;
-        sender.nonce += 1;
+        // Deduct cost from sender (already verified balance >= total_cost)
+        sender.balance = sender.balance.saturating_sub(total_cost);
+        sender.nonce = sender.nonce.saturating_add(1);
         state.set_account(tx.from, sender);
 
         // Transfer value to recipient if present
-        let status = if let Some(to_addr) = tx.to {
+        let (status, contract_address) = if let Some(to_addr) = tx.to {
             let mut recipient = state.get_account(&to_addr)
                 .unwrap_or_else(|| Account::new());
-            recipient.balance += tx.value;
+            recipient.balance = recipient.balance.saturating_add(tx.value);
             state.set_account(to_addr, recipient);
-            ExecutionStatus::Success
+            (ExecutionStatus::Success, None)
         } else {
-            // Contract deployment would go here
-            ExecutionStatus::Success
+            // Contract deployment - CREATE operation using real EVM execution
+            use luxtensor_contracts::EvmExecutor;
+
+            // Get current timestamp
+            let timestamp = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
+
+            // Execute init code using EvmExecutor
+            let executor = EvmExecutor::new();
+
+            match executor.deploy(
+                tx.from,
+                tx.data.clone(),  // Init code (constructor bytecode)
+                tx.value,
+                tx.gas_limit,
+                block_height,
+                timestamp,
+            ) {
+                Ok((contract_address_vec, gas_used, _logs, deployed_code)) => {
+                    // 🔧 FIX: Use contract address returned by revm, not manual calculation
+                    let mut contract_addr_bytes = [0u8; 20];
+                    if contract_address_vec.len() >= 20 {
+                        contract_addr_bytes.copy_from_slice(&contract_address_vec[..20]);
+                    }
+                    let contract_addr = Address::from(contract_addr_bytes);
+
+                    // Create contract account with proper code hash from deployed bytecode
+                    let mut contract_account = Account::new();
+                    contract_account.balance = tx.value;
+                    contract_account.code_hash = {
+                        let mut code_hasher = Keccak256::new();
+                        code_hasher.update(&deployed_code); // Use actual deployed bytecode
+                        let code_hash = code_hasher.finalize();
+                        let mut hash = [0u8; 32];
+                        hash.copy_from_slice(&code_hash);
+                        hash
+                    };
+
+                    state.set_account(contract_addr, contract_account);
+
+                    // ✅ FIX: Register deployed contract with actual runtime bytecode from revm
+                    luxtensor_rpc::contract_registry::register_contract(
+                        contract_addr_bytes,
+                        deployed_code.clone(), // Use actual deployed bytecode
+                        *tx.from.as_bytes(),
+                        block_height,
+                    );
+
+                    info!("📄 Contract deployed at 0x{} (gas used: {})",
+                          hex::encode(&contract_addr_bytes), gas_used);
+                    (ExecutionStatus::Success, Some(contract_addr))
+                }
+                Err(e) => {
+                    tracing::error!("❌ Contract deployment FAILED: {:?}", e);
+                    tracing::error!("   From: 0x{}", hex::encode(tx.from.as_bytes()));
+                    tracing::error!("   Data len: {} bytes", tx.data.len());
+                    tracing::error!("   Gas limit: {}", tx.gas_limit);
+                    (ExecutionStatus::Failed, None)
+                }
+            }
         };
 
         // Create receipt
@@ -125,6 +204,7 @@ impl TransactionExecutor {
             gas_used: gas_cost,
             status,
             logs: vec![],
+            contract_address,
         };
 
         Ok(receipt)
@@ -133,10 +213,10 @@ impl TransactionExecutor {
     /// Calculate gas cost for a transaction
     fn calculate_gas_cost(&self, tx: &Transaction) -> Result<u64> {
         let mut gas = self.base_gas_cost;
-        
+
         // Add gas for data
         gas += self.gas_per_byte * (tx.data.len() as u64);
-        
+
         Ok(gas)
     }
 
@@ -191,16 +271,16 @@ mod tests {
     ) -> Transaction {
         let from = Address::from(keypair.address());
         let mut tx = Transaction::new(nonce, from, to, value, 1, 100000, vec![]);
-        
+
         // Sign transaction
         let msg = tx.signing_message();
         let msg_hash = keccak256(&msg);
-        let sig = keypair.sign(&msg_hash);
-        
+        let sig = keypair.sign(&msg_hash).expect("Failed to sign");
+
         tx.r.copy_from_slice(&sig[..32]);
         tx.s.copy_from_slice(&sig[32..]);
         tx.v = 0;
-        
+
         tx
     }
 
@@ -222,7 +302,7 @@ mod tests {
             100000,
             vec![0; 10], // 10 bytes of data
         );
-        
+
         let gas_cost = executor.calculate_gas_cost(&tx).unwrap();
         assert_eq!(gas_cost, 21000 + 68 * 10);
     }
@@ -231,7 +311,7 @@ mod tests {
     fn test_simple_transfer() {
         let executor = TransactionExecutor::new();
         let mut state = StateDB::new();
-        
+
         // Setup sender with balance
         let keypair = KeyPair::generate();
         let from = Address::from(keypair.address());
@@ -239,11 +319,11 @@ mod tests {
         sender.balance = 1_000_000;
         sender.nonce = 0;
         state.set_account(from, sender);
-        
+
         // Create and sign transaction
         let to = Address::zero();
         let tx = create_signed_transaction(&keypair, 0, Some(to), 1000);
-        
+
         // Execute transaction
         let result = executor.execute(
             &tx,
@@ -252,7 +332,7 @@ mod tests {
             [1u8; 32],
             0,
         );
-        
+
         // For now, signature verification may fail without proper signing
         // Just check that execution doesn't panic
         let _ = result;
@@ -262,7 +342,7 @@ mod tests {
     fn test_insufficient_balance() {
         let executor = TransactionExecutor::new();
         let mut state = StateDB::new();
-        
+
         // Setup sender with insufficient balance
         let keypair = KeyPair::generate();
         let from = Address::from(keypair.address());
@@ -270,9 +350,9 @@ mod tests {
         sender.balance = 100;  // Not enough
         sender.nonce = 0;
         state.set_account(from, sender);
-        
+
         let tx = create_signed_transaction(&keypair, 0, Some(Address::zero()), 1000);
-        
+
         let result = executor.execute(
             &tx,
             &mut state,
@@ -280,7 +360,7 @@ mod tests {
             [1u8; 32],
             0,
         );
-        
+
         // Should fail due to insufficient balance or signature issue
         assert!(result.is_err());
     }
@@ -289,19 +369,19 @@ mod tests {
     fn test_batch_execution() {
         let executor = TransactionExecutor::new();
         let mut state = StateDB::new();
-        
+
         let keypair = KeyPair::generate();
         let from = Address::from(keypair.address());
         let mut sender = Account::new();
         sender.balance = 10_000_000;
         sender.nonce = 0;
         state.set_account(from, sender);
-        
+
         let txs = vec![
             create_signed_transaction(&keypair, 0, Some(Address::zero()), 1000),
             create_signed_transaction(&keypair, 1, Some(Address::zero()), 2000),
         ];
-        
+
         let results = executor.execute_batch(&txs, &mut state, 1, [1u8; 32]);
         assert_eq!(results.len(), 2);
     }
@@ -319,9 +399,10 @@ mod tests {
                 gas_used: 21000,
                 status: ExecutionStatus::Success,
                 logs: vec![],
+                contract_address: None,
             },
         ];
-        
+
         let root = calculate_receipts_root(&receipts);
         assert_ne!(root, [0u8; 32]);
     }

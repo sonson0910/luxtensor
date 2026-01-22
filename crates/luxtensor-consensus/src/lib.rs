@@ -15,6 +15,11 @@ pub mod burn_manager;
 pub mod reward_executor;
 pub mod node_tier;
 pub mod token_allocation;
+pub mod commit_reveal;
+pub mod weight_consensus;
+pub mod long_range_protection;
+
+
 
 pub use error::*;
 pub use validator::{Validator, ValidatorSet};
@@ -42,4 +47,11 @@ pub use token_allocation::{
     TokenAllocation, AllocationCategory, VestingSchedule, VestingEntry,
     TgeResult, AllocationStats, TOTAL_SUPPLY, DECIMALS
 };
-
+pub use commit_reveal::{
+    CommitRevealManager, CommitRevealConfig, WeightCommit, EpochPhase,
+    SlashingResult, EpochFinalizationResult
+};
+pub use weight_consensus::{
+    WeightConsensusManager, WeightConsensusConfig, WeightProposal,
+    ProposalStatus, ConsensusResult, ProposalVote
+};
